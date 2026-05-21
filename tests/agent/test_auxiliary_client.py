@@ -471,6 +471,17 @@ class TestExpiredCodexFallback:
         import base64
         import time as _time
 
+        # Belt-and-suspenders: _try_openrouter marks openrouter unhealthy
+        # when OPENROUTER_API_KEY is absent (which the preceding test in
+        # this class exercises).  The file-level _clean_env autouse fixture
+        # clears the cache, but fixture ordering with the conftest
+        # _hermetic_environment autouse can leave a narrow window where
+        # the mark reappears.  Explicitly clear here so this test is
+        # independent of run order.
+        import agent.auxiliary_client as _aux_mod
+        _aux_mod._aux_unhealthy_until.clear()
+        _aux_mod._aux_unhealthy_logged_at.clear()
+
         header = base64.urlsafe_b64encode(b'{"alg":"RS256","typ":"JWT"}').rstrip(b"=").decode()
         payload_data = json.dumps({"exp": int(_time.time()) - 3600}).encode()
         payload = base64.urlsafe_b64encode(payload_data).rstrip(b"=").decode()
