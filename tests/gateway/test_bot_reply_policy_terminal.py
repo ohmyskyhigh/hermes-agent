@@ -20,8 +20,28 @@ _PROFILE_NAMES = (
 )
 
 
+def _policy_paths(candidate):
+    return [
+        (candidate if profile_name == "default" else candidate / "profiles" / profile_name)
+        / "plugins/feishu-group-reply-policy/__init__.py"
+        for profile_name in _PROFILE_NAMES
+    ]
+
+
+def _installed_hermes_root(start=None):
+    origin = Path(start or __file__).resolve()
+    candidates = [
+        candidate for candidate in origin.parents
+        if candidate.name == "hermes" and all(path.is_file() for path in _policy_paths(candidate))
+    ]
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"Expected exactly one installed Hermes root with all reply policies, found {len(candidates)}")
+    return candidates[0]
+
+
 def _load_installed_policies():
-    hermes_root = Path(__file__).resolve().parents[4]
+    hermes_root = _installed_hermes_root()
     policies = {}
     old_dont_write_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
@@ -44,6 +64,17 @@ def _load_installed_policies():
 
 
 _INSTALLED_POLICIES = _load_installed_policies()
+
+
+def test_installed_root_rejects_ambiguous_complete_candidates(tmp_path):
+    outer = tmp_path / "hermes"
+    inner = outer / "nested" / "hermes"
+    for candidate in (outer, inner):
+        for path in _policy_paths(candidate):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+    with pytest.raises(RuntimeError, match="exactly one"):
+        _installed_hermes_root(inner / "checkout/tests/gateway/test_policy.py")
 
 
 @pytest.fixture(params=_PROFILE_NAMES)
