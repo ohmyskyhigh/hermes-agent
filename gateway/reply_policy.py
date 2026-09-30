@@ -76,8 +76,9 @@ async def finalize_reply_policy(event, result, text):
     if any(result.get(k) for k in ("failed", "error", "interrupted", "partial", "failure_reason")) or result.get("completed") is False:
         return None
     if not hasattr(event, "_reply_policy_final"):
+        policy_event = getattr(event, "_reply_policy_event", event)
         event._reply_policy_final = await asyncio.to_thread(
-            _decision, "final", reply_policy_context(event, text or ""))
+            _decision, "final", reply_policy_context(policy_event, text or ""))
         decision = event._reply_policy_final
         if decision and decision["action"] == "send" and decision["mentions"]:
             event._reply_policy_mentions = decision["mentions"]

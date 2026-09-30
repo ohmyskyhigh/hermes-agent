@@ -2933,6 +2933,7 @@ class GatewayTurnMixin:
             "history_offset": len(history),
             "session_id": session_id,
             "response_previewed": _stream_consumer is not None and bool(full_response),
+            "partial": bool(full_response) and not saw_done,
         }
 
     async def _run_agent(

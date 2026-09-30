@@ -176,6 +176,9 @@ VALID_HOOKS: Set[str] = {
     #   (privacy: task ids, assignees, workspace paths).
     "on_kanban_worker_spawned", "on_kanban_worker_exited", "on_kanban_worker_stale_claim",
     "on_kanban_task_updated", "on_kanban_dispatch_tick",
+    # gateway_reply_policy: conversational egress classification. Prepare may request buffering;
+    # final may send/suppress/defer and attach native mention recipients.
+    "gateway_reply_policy",
     # gateway_platform_event: normalized envelopes only, never raw SDK objects or adapter handles.
     # Kwargs: platform, event_type, payload (event_type-local; see hooks.md). New event types land
     # only together with real fire-sites.
