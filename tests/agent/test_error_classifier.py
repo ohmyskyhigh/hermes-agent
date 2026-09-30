@@ -751,6 +751,24 @@ class TestClassifyApiError:
         assert result.reason == FailoverReason.payload_too_large
         assert result.should_compress is True
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Invalid image provided: Image dimensions 2500x13418 requires "
+            "33180 patches, exceeding the limit of 30000.",
+            "The image you provided requires 33180 patches after processing, "
+            "exceeding the limit of 30000. Please resize the image and try again.",
+        ],
+    )
+    def test_image_patch_limit_enters_shrink_recovery(self, message):
+        result = classify_api_error(
+            MockAPIError(message, status_code=400),
+            provider="openai-codex",
+            model="gpt-6-astra",
+        )
+        assert result.reason == FailoverReason.image_too_large
+        assert result.retryable is True
+
     # ── Context overflow ──
 
 
