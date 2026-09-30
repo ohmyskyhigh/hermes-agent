@@ -97,6 +97,24 @@ class TestImageTooLargeClassification:
         assert result.reason == FailoverReason.image_too_large
         assert result.retryable is True
 
+    def test_legacy_codex_patch_budget_reports_safe_dimension(self):
+        err = _FakeApiError(
+            status_code=400,
+            message=(
+                "Invalid image provided: Image dimensions 2500x13418 requires "
+                "33180 patches, exceeding the limit of 30000."
+            ),
+        )
+        assert _image_error_max_dimension(err) == 5536
+
+    def test_unrelated_patch_limit_is_not_an_image_error(self):
+        err = _FakeApiError(
+            status_code=400,
+            message="JSON diff requires 33180 patches, exceeding the limit of 30000.",
+        )
+        result = classify_api_error(err, provider="custom", model="x")
+        assert result.reason != FailoverReason.image_too_large
+
     def test_unrelated_400_still_not_image_too_large(self):
         """The new "media" patterns must not widen into ordinary 400s."""
         err = _FakeApiError(
