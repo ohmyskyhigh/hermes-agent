@@ -144,7 +144,10 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
 
 def _thread_metadata_for_event(event) -> dict | None:
     """``_thread_metadata_for_source`` for an event, anchored on its reply id."""
-    return _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
+    from gateway.reply_policy import reply_policy_metadata
+
+    return reply_policy_metadata(
+        event, _thread_metadata_for_source(event.source, _reply_anchor_for_event(event)))
 
 
 def _mark_notify_metadata(metadata: dict | None) -> dict:
@@ -4526,7 +4529,28 @@ class BasePlatformAdapter(ABC):
                     response, event, session_key, is_ephemeral_response=is_ephemeral_response)
                 text_content, media_files = extracted.text_content, extracted.media_files
                 # Final content gets notify=True; typing metadata stays unmarked (thread-strict).
-                _final_thread_metadata = _mark_notify_metadata(_thread_metadata)
+                from gateway.reply_policy import (
+                    reply_policy_metadata, send_policy_text_first, without_reply_mentions,
+                )
+                _final_thread_metadata = _mark_notify_metadata(
+                    reply_policy_metadata(event, _thread_metadata))
+
+                async def _send_policy_text(text, metadata, record):
+                    def _record(result):
+                        record(result)
+                        _record_delivery(result)
+
+                    await self._send_final_text(
+                        event, session_key, text, metadata,
+                        is_ephemeral_response, _ephemeral_ttl, _record)
+
+                _policy_text = text_content
+                if not _policy_text and (extracted.images or media_files or extracted.local_files):
+                    _policy_text = "Attachments:"
+                _policy_text_sent = await send_policy_text_first(
+                    self, event, _policy_text, _final_thread_metadata, _send_policy_text)
+                if _policy_text_sent:
+                    _final_thread_metadata = without_reply_mentions(_final_thread_metadata)
                 _tts_paths, _tts_requested_path = [], None
                 if self._wants_auto_tts(
                         event, session_key, interrupt_event, text_content, media_files):
@@ -4536,7 +4560,8 @@ class BasePlatformAdapter(ABC):
                 for _tts_index, _tts_path in enumerate(_tts_paths):
                     try:
                         _tts_caption_delivered |= await self._play_tts_file(
-                            event, text_content, _tts_path, _tts_index == 0, _final_thread_metadata,
+                            event, "" if _policy_text_sent else text_content, _tts_path,
+                            _tts_index == 0, _final_thread_metadata,
                             _record_delivery)
                     finally:
                         with contextlib.suppress(OSError):
@@ -4556,16 +4581,21 @@ class BasePlatformAdapter(ABC):
                 if text_content or extracted.images or extracted.media_files or extracted.local_files \
                         or _tts_paths or _tts_caption_delivered:
                     self.pause_typing_for_chat(event.source.chat_id)
-                if text_content and not _tts_caption_delivered:
+                if text_content and not _tts_caption_delivered and not _policy_text_sent:
                     await self._send_final_text(
                         event, session_key, text_content, _final_thread_metadata,
                         is_ephemeral_response, _ephemeral_ttl, _record_delivery)
                 await self._deliver_attachments(
                     event, extracted, _final_thread_metadata,
-                    anything_sent=delivery_attempted or _tts_caption_delivered,
+                    anything_sent=delivery_attempted or _tts_caption_delivered or _policy_text_sent,
                     record_delivery=_record_delivery)
             await self._release_turn_marker(event)
-            processing_ok = delivery_succeeded if delivery_attempted else not bool(response)
+            processing_ok = (
+                delivery_succeeded if delivery_attempted
+                else bool(getattr(event, "_reply_policy_text_delivered", False)) or not bool(response)
+            )
+            if (getattr(event, "_reply_policy_final", None) or {}).get("action") == "defer":
+                processing_ok = False
             # Clean up the per-turn streaming-TTS flag.
             self._streaming_tts_completed_turns.discard(self._streaming_tts_turn_key(
                 session_key, getattr(interrupt_event, "_hermes_run_generation", None),

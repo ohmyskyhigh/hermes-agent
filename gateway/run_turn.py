@@ -1918,6 +1918,12 @@ class GatewayTurnMixin:
     ):
         """Final delivery decisions: intentional silence, voice reply, streamed-turn media/footer.
         Returns the text for the adapter to send, or ``None`` when already delivered."""
+        from gateway.reply_policy import finalize_reply_policy
+
+        with self._profile_scope_for_source(source):
+            decision = await finalize_reply_policy(event, agent_result, response)
+        if decision and decision["action"] in ("suppress", "defer"):
+            return None
         if diagnostic_wake_muted(event):
             return None
         # Intentional silence is a delivery decision: the [SILENT] turn stays persisted (alternation).
@@ -1933,6 +1939,10 @@ class GatewayTurnMixin:
         if not _streaming_tts_done and self._should_send_voice_reply(
             event, response, agent_messages, already_sent=bool(agent_result.get("already_sent")),
         ):
+            if getattr(event, "_reply_policy_mentions", None) and adapter:
+                from gateway.reply_policy import policy_text_before_voice
+
+                await policy_text_before_voice(self, event, response, adapter)
             await self._send_voice_reply(event, response)
 
         # Streamed responses still need MEDIA: files delivered (chunks carry the tags verbatim). Never
@@ -2208,6 +2218,7 @@ class GatewayTurnMixin:
                     **reply_expected_metadata(event.reply_expected), **diagnostic_metadata(event)},
                 message_type=event.message_type,
                 scheduled_heartbeat=bool(getattr(event, "_heartbeat_session_id", None)),
+                reply_policy_event=event,
             )
             _turn_seconds = time.monotonic() - _turn_started_monotonic
 
@@ -2712,7 +2723,7 @@ class GatewayTurnMixin:
 
     @staticmethod
     def _proxy_error_result(text: str) -> Dict[str, Any]:
-        return {"final_response": text, "messages": [], "api_calls": 0, "tools": []}
+        return {"final_response": text, "messages": [], "api_calls": 0, "tools": [], "failed": True}
 
     def _proxy_stream_consumer(self, source: "SessionSource", event_message_id, _thread_metadata, _run_still_current):
         """Platform stream consumer for the proxy path when streaming is enabled, else ``None``."""
@@ -2753,6 +2764,7 @@ class GatewayTurnMixin:
         source: "SessionSource", session_id: str, session_key: str = None,
         run_generation: Optional[int] = None, event_message_id: Optional[str] = None,
         scheduled_heartbeat: bool = False,
+        reply_policy_buffer: bool = False,
     ) -> Dict[str, Any]:
         """Forward the message to a remote Hermes API server instead of running a local AIAgent.
 
@@ -2809,7 +2821,7 @@ class GatewayTurnMixin:
 
         _thread_metadata: Optional[Dict[str, Any]] = self._thread_metadata_for_source(source, event_message_id)
         _stream_consumer = (
-            None if scheduled_heartbeat
+            None if scheduled_heartbeat or reply_policy_buffer
             else self._proxy_stream_consumer(source, event_message_id, _thread_metadata, _run_still_current)
         )
         stream_task = asyncio.create_task(_stream_consumer.run()) if _stream_consumer else None
@@ -3907,6 +3919,7 @@ class GatewayTurnMixin:
                 reply_expected=next_reply_expected,
                 persist_user_display_metadata={
                     **reply_expected_metadata(next_reply_expected), **diagnostic_metadata(pending_event)} or None,
+                reply_policy_event=pending_event,
             )
         except asyncio.CancelledError:
             await _run_followup_processing_hook(
@@ -4235,15 +4248,23 @@ class GatewayTurnMixin:
         reply_expected: Optional[bool] = None,
         scheduled_heartbeat: bool = False,
         title_user_message: Optional[str] = None,
+        reply_policy_event: Optional[MessageEvent] = None,
     ) -> Dict[str, Any]:
         """Run the agent; returns the full run_conversation result dict.
 
         Keys: "final_response", "messages", "api_calls", "completed"."""
+        from gateway.reply_policy import prepare_reply_policy
+
+        policy_buffer = (
+            await prepare_reply_policy(reply_policy_event)
+            if reply_policy_event is not None else False
+        )
         if self._get_proxy_url():
             return await self._run_agent_via_proxy(
                 message=message, context_prompt=context_prompt, history=history, source=source,
                 session_id=session_id, session_key=session_key, run_generation=run_generation,
                 event_message_id=event_message_id, scheduled_heartbeat=scheduled_heartbeat,
+                reply_policy_buffer=policy_buffer,
             )
 
         from run_agent import AIAgent
@@ -4275,11 +4296,12 @@ class GatewayTurnMixin:
             persist_user_display_metadata=persist_user_display_metadata,
             scheduled_heartbeat=scheduled_heartbeat,
         )
+        turn_ctx.reply_policy_buffer = policy_buffer
         _status_thread_metadata = self._run_agent_bind_turn_wiring(
             turn_ctx, turn_runner, source, event_message_id, disp._native_slack_task_cards,
         )
         # Two independent quiet reasons: a muted diagnostic wake (ours) and a scheduled heartbeat.
-        if not (scheduled_heartbeat or turn_ctx.mute_notification_reply):
+        if not (scheduled_heartbeat or turn_ctx.mute_notification_reply or policy_buffer):
             self._run_agent_start_streaming_tts(
                 source, message_type, _status_thread_metadata, turn_ctx.streaming_tts_consumer_holder,
             )
@@ -4289,7 +4311,10 @@ class GatewayTurnMixin:
         progress_task = spawn(turn_runner.send_progress_messages()) if disp.needs_progress_queue else None
         log_task = spawn(self._run_agent_write_tool_log(disp.log_queue)) if disp.log_mode_enabled else None
         # The stream consumer is created inside run_sync; this task polls for it.
-        stream_task = spawn(self._run_agent_stream_consumer_task(turn_ctx.stream_consumer_holder))
+        stream_task = (
+            None if policy_buffer
+            else spawn(self._run_agent_stream_consumer_task(turn_ctx.stream_consumer_holder))
+        )
         tracking_task = spawn(self._run_agent_track_agent(turn_ctx))
         _interrupt_detected = asyncio.Event()  # shared with backup check
         interrupt_monitor = spawn(self._run_agent_monitor_for_interrupt(turn_ctx, _interrupt_detected))
@@ -4314,7 +4339,17 @@ class GatewayTurnMixin:
             adapter = self._delivery_adapter_for(source)
             await self._run_agent_finalize_streaming_tts(turn_ctx, adapter)
             pending_event, pending = await self._run_agent_drain_pending(result, adapter, source, session_key)
-            if pending_event or pending:
+            if policy_buffer and (pending_event or pending):
+                # Buffered turns cannot safely deliver before classification. Hand each queued
+                # event back to the base adapter so it gets its own policy and final boundary.
+                staged = adapter._pending_messages.pop(session_key, None)
+                if staged is not None:
+                    self._session_state(session_key).conversation.queued_events.insert(0, staged)
+                adapter._pending_messages[session_key] = (
+                    pending_event if pending_event is not None
+                    else MessageEvent(text=pending, source=source)
+                )
+            elif pending_event or pending:
                 return await self._run_agent_queued_followup(
                     turn_ctx, adapter, pending, pending_event, response, result, stream_task,
                 )
