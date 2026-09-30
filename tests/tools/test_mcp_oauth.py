@@ -222,6 +222,26 @@ class TestHermesTokenStorage:
 # ---------------------------------------------------------------------------
 
 class TestBuildOAuthAuth:
+    @pytest.mark.asyncio
+    async def test_device_login_validates_configured_authorization_server(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.mcp_oauth_device import login_device
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+        def unexpected_http_client():
+            raise AssertionError("invalid issuer must fail before creating an HTTP client")
+
+        monkeypatch.setattr("tools.mcp_tool.sdk_httpx", unexpected_http_client)
+
+        with pytest.raises(ValueError, match="authorization_server_url"):
+            await login_device(
+                "device",
+                "https://mcp.example.com/mcp",
+                {"authorization_server_url": "http://issuer.example.com"},
+            )
+
     def test_returns_none_without_sdk(self, monkeypatch):
         import tools.mcp_oauth as mod
         monkeypatch.setattr(mod, "_OAUTH_AVAILABLE", False)
@@ -239,6 +259,25 @@ class TestBuildOAuthAuth:
         })
         assert provider is not None
         assert provider.context.client_metadata.scope == "read write admin"
+
+    def test_legacy_builder_uses_manager_provider_with_configured_issuer(
+        self, tmp_path, monkeypatch
+    ):
+        import tools.mcp_oauth as oauth
+        from tools.mcp_oauth_manager import HermesMCPOAuthProvider
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setattr(oauth, "_is_interactive", lambda: True)
+        monkeypatch.setattr(oauth, "HermesOAuthClientProvider", None)
+
+        provider = build_oauth_auth(
+            "legacy",
+            "https://mcp.example.com/mcp",
+            {"authorization_server_url": "https://issuer.example.com"},
+        )
+
+        assert isinstance(provider, HermesMCPOAuthProvider)
+        assert provider._hermes_authorization_server_url == "https://issuer.example.com"
 
 
     @pytest.mark.asyncio
