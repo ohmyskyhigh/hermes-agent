@@ -42,7 +42,13 @@ async def _discover(client, provider):
             break
     # RFC 9728 lets a resource advertise several authorization servers; a browser-only
     # server often comes first and the device-code one later, so try each in order.
-    servers = [str(url) for url in prm.authorization_servers] if prm else [None]
+    advertised = [str(url) for url in prm.authorization_servers] if prm else []
+    if provider._hermes_authorization_server_url:
+        selected = provider._select_authorization_server(advertised)
+        provider._select_configured_authorization_server(selected)
+        servers = [selected]
+    else:
+        servers = advertised or [None]
     failures = []
     for auth_server_url in servers:
         try:

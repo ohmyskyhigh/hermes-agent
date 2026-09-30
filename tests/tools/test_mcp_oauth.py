@@ -223,6 +223,79 @@ class TestHermesTokenStorage:
 
 class TestBuildOAuthAuth:
     @pytest.mark.asyncio
+    async def test_device_discovery_uses_only_configured_advertised_server(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.mcp_oauth import _build_client_metadata
+        from tools.mcp_oauth_device import _discover
+        from tools.mcp_oauth_manager import HermesMCPOAuthProvider
+        from tools.mcp_oauth_provider import prepare_oauth_config
+        from tools.mcp_tool import sdk_httpx
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        server_url = "https://mcp.example.com/mcp"
+        configured = "https://chosen.example.com"
+        cfg, storage = prepare_oauth_config("device", server_url, {})
+        cfg["_resolved_port"] = cfg.get("redirect_port", 8420)
+        provider = HermesMCPOAuthProvider(
+            server_url=server_url,
+            server_name="device",
+            storage=storage,
+            client_metadata=_build_client_metadata(cfg),
+            authorization_server_url=configured,
+        )
+        httpx = sdk_httpx()
+
+        class Client:
+            def __init__(self):
+                self.requested = []
+
+            async def get(self, url):
+                url = str(url)
+                self.requested.append(url)
+                request = httpx.Request("GET", url)
+                if url == server_url:
+                    return httpx.Response(
+                        401,
+                        headers={"WWW-Authenticate": 'Bearer resource_metadata="https://mcp.example.com/prm"'},
+                        request=request,
+                    )
+                if url == "https://mcp.example.com/prm":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "resource": server_url,
+                            "authorization_servers": [
+                                "https://other.example.com",
+                                configured,
+                            ],
+                        },
+                        request=request,
+                    )
+                if "other.example.com" in url:
+                    raise AssertionError("device discovery requested an unconfigured issuer")
+                return httpx.Response(
+                    200,
+                    json={
+                        "issuer": configured,
+                        "token_endpoint": f"{configured}/token",
+                        "device_authorization_endpoint": f"{configured}/device",
+                        "response_types_supported": [],
+                        "grant_types_supported": [
+                            "urn:ietf:params:oauth:grant-type:device_code"
+                        ],
+                    },
+                    request=request,
+                )
+
+        client = Client()
+        await _discover(client, provider)
+
+        assert provider.context.auth_server_url == configured
+        assert str(provider.context.oauth_metadata.issuer).rstrip("/") == configured
+        assert all("other.example.com" not in url for url in client.requested)
+
+    @pytest.mark.asyncio
     async def test_device_login_validates_configured_authorization_server(
         self, tmp_path, monkeypatch
     ):
