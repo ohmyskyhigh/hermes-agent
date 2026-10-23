@@ -422,10 +422,20 @@ mcp_servers:
     url: "https://mcp.example.com/mcp"
     auth: oauth
     oauth:
+      authorization_server_url: "https://idp.example.com"      # exact AS URL/issuer
       client_metadata_url: "https://example.com/my-cimd.json"  # self-hosted document
       cimd: false                                              # force DCR
       user_agent: "My-MCP-Client/1.0"                          # token-request User-Agent
 ```
+
+`authorization_server_url` selects an authorization server when protected-resource metadata
+advertises more than one. It must be an absolute HTTPS issuer URL without whitespace, userinfo,
+query, or fragment, and it must match an advertised authorization server (a single trailing slash
+difference is allowed). Hermes still validates the protected resource and discovers the selected
+server's metadata before it sends registration, authorization, refresh, or token requests. Missing,
+malformed, non-matching, or issuer-mismatched metadata fails closed instead of falling back to a
+guessed endpoint on the MCP resource origin. Omit the key to retain normal MCP SDK discovery and
+existing server configurations.
 
 `client_metadata_url` must be an HTTPS URL with a path (no bare origin, no fragment, no userinfo, no `.`/`..` segments) that returns `200` and `Content-Type: application/json` with **no redirect** — authorization servers are forbidden from following redirects when fetching it. Hermes still pins its callback to the same `27890`–`27894` range, so a self-hosted document must declare all ten loopback URIs (`http://127.0.0.1:<port>/callback` and `http://localhost:<port>/callback` for each port), and its `client_id` must be its own URL.
 

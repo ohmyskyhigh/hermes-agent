@@ -764,6 +764,14 @@ class GatewayBusySessionMixin:
             return None
         if turn.event is not None and turn.event is not event:
             turn.event.absorb_reply_expected(event)
+            # Sender identity may follow a steer/redirect only within the same routed
+            # conversation; never let a misplaced busy event cross a profile or chat boundary.
+            opening_source = turn.event.source
+            if all(
+                getattr(opening_source, field, None) == getattr(event.source, field, None)
+                for field in ("platform", "chat_id", "thread_id", "scope_id", "profile")
+            ):
+                turn.event._reply_policy_event = event
             if turn.ctx is not None:
                 turn.ctx.reply_expected = turn.event.reply_expected
         return turn

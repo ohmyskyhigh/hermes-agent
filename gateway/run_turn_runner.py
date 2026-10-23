@@ -213,6 +213,8 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
 
     def _setup_stream_consumer(self, platform_key):
         ctx = self._ctx
+        if getattr(ctx, "reply_policy_buffer", False):
+            return None, None, lambda *args, **kwargs: None, False
         if ctx.mute_notification_reply:
             return None, None, None, False
         stream_consumer = None

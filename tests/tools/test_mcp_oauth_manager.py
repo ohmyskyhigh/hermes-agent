@@ -66,9 +66,7 @@ def test_manager_restore_entry_preserves_newer_concurrent_entry(tmp_path, monkey
     assert new_provider is not old_provider
 
 def _set_interactive_stdin(monkeypatch, *, is_tty: bool = True) -> None:
-    mock_stdin = MagicMock()
-    mock_stdin.isatty.return_value = is_tty
-    monkeypatch.setattr("tools.mcp_oauth.sys.stdin", mock_stdin)
+    monkeypatch.setattr("tools.mcp_oauth._stdin_is_console", lambda: is_tty)
 
 
 

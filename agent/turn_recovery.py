@@ -83,11 +83,13 @@ def _image_error_max_dimension(error: Exception) -> Optional[int]:
     # so a per-side cap of isqrt(limit)*32 px keeps isqrt(limit)² ≤ limit — for the
     # 30000-patch ceiling that is 5536 px. Without this the caller falls back to
     # 8000 px and a 6000 px image that already exceeds the budget is skipped (#106337).
-    if "patches after processing" in text:
-        match = re.search(r"exceeding the limit of\s*(\d{2,7})", text)
-        if not match:
-            return None
-        max_dimension = math.isqrt(int(match.group(1))) * 32
+    patch_limit = re.search(
+        r"\bimage\b[^\n]{0,240}\brequires\s+\d+\s+patches"
+        r"(?:\s+after processing)?,?\s+exceeding the limit of\s*(\d{2,7})",
+        text,
+    )
+    if patch_limit:
+        max_dimension = math.isqrt(int(patch_limit.group(1))) * 32
         return max_dimension if 512 <= max_dimension <= 8000 else None
     if "image" not in text or "dimension" not in text or "max allowed size" not in text:
         return None

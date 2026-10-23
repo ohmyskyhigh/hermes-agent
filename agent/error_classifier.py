@@ -205,7 +205,7 @@ _PAYLOAD_TOO_LARGE_PATTERNS = (
 _IMAGE_TOO_LARGE_PATTERNS = (
     "image exceeds", "image too large", "image_too_large", "image size exceeds", "image dimensions exceed",
     "dimensions exceed max allowed size", "max allowed size: 8000", "media exceeds", "media too large",
-    "patches after processing", "make sure your payload is below", "streamreadconstraints.getmaxstringlength",
+    "make sure your payload is below", "streamreadconstraints.getmaxstringlength",
 )
 
 # Undecodable image bytes → strip-and-retry, never shrink. xAI wordings
@@ -621,6 +621,19 @@ def _first_match(error_msg: str, rules: Sequence[tuple[Sequence[str], Any]]) -> 
     return None
 
 
+_IMAGE_PATCH_LIMIT_RE = re.compile(
+    r"\bimage\b[^\n]{0,240}\brequires\s+\d+\s+patches"
+    r"(?:\s+after processing)?,?\s+exceeding the limit of\s+\d+"
+)
+
+
+def _image_tool_verdict(error_msg: str) -> Optional[Verdict]:
+    """Classify image/tool errors without treating unrelated patch counts as images."""
+    if _IMAGE_PATCH_LIMIT_RE.search(error_msg):
+        return _V_IMAGE_TOO_LARGE
+    return _first_match(error_msg, _IMAGE_TOOL_RULES)
+
+
 # Image/tool-content 400s, ordered: multimodal recovery ≠ image shrink; corrupt
 # bytes need strip not shrink; image-shrink is cheaper than context compression.
 _IMAGE_TOOL_RULES = (
@@ -657,7 +670,7 @@ _STREAM_RENDER_ERROR_PATTERNS = ("error rendering", "rendering prompt", "jinja t
 _MESSAGE_HEAD_RULES = ((_MEMORY_CEILING_PATTERNS, _V_OVERLOADED),
                        (_PAYLOAD_TOO_LARGE_PATTERNS, _V_PAYLOAD_TOO_LARGE),
                        (_ROLE_ALTERNATION_PATTERNS, _V_ROLE_ALTERNATION),
-                       (_STREAM_RENDER_ERROR_PATTERNS, _V_FORMAT_ERROR)) + _IMAGE_TOOL_RULES
+                       (_STREAM_RENDER_ERROR_PATTERNS, _V_FORMAT_ERROR))
 
 # Status-less tail. Overload before rate_limit/billing so "overloaded" backs off
 # instead of rotating; policy block before model_not_found; timeout/connection
@@ -953,6 +966,9 @@ def _by_message(c: _Ctx) -> Optional[Verdict]:
     head = _first_match(c.msg, _MESSAGE_HEAD_RULES)
     if head is not None:
         return head
+    image_tool = _image_tool_verdict(c.msg)
+    if image_tool is not None:
+        return image_tool
     usage_limit = any(p in c.msg for p in _USAGE_LIMIT_PATTERNS)
     return _classify_402(c.msg, dict) if usage_limit else _first_match(c.msg, _MESSAGE_TAIL_RULES)
 
@@ -1215,7 +1231,7 @@ def _classify_400(c: _Ctx) -> Verdict:
     # multimodal rule, which would otherwise claim "input should be a valid string".
     if _oversized_message_content_rejection(c.body):
         return _V_IMAGE_TOO_LARGE
-    verdict = _first_match(msg, _IMAGE_TOOL_RULES)
+    verdict = _image_tool_verdict(msg)
     if verdict is not None:
         return verdict
     # Codex ChatGPT-account model rejection: exact normalized text only, so arbitrary 400s never

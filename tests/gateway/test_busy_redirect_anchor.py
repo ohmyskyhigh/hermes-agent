@@ -102,3 +102,77 @@ async def test_a_turn_that_takes_in_an_addressed_message_keeps_the_silence_fallb
         assert outcome.redirected or outcome.steered
 
     assert (opening.reply_expected, ctx.reply_expected) == (True, True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["steer", "interrupt"])
+async def test_reply_policy_uses_latest_busy_sender_after_turn_accepts_message(monkeypatch, mode):
+    from hermes_cli import plugins
+    from gateway.reply_policy import finalize_reply_policy
+
+    runner = GatewayRunner(config=GatewayConfig())
+    receiver = Receiver()
+    opening, _, incoming, _ = _running_turn(runner, "key", receiver)
+    opening.source = SessionSource(
+        platform=Platform.FEISHU, chat_id="c1", user_id="alice", user_name="Alice",
+        chat_type="group", profile="joi",
+    )
+    incoming.source = SessionSource(
+        platform=Platform.FEISHU, chat_id="c1", user_id="bob", user_name="Bob",
+        chat_type="group", profile="joi",
+    )
+    incoming.raw_message = {
+        "event": {"sender": {"sender_id": {"open_id": "bob-open"}}},
+    }
+
+    outcome = await runner._resolve_busy_steer_or_redirect(incoming, "key", mode, receiver)
+    assert outcome.steered or outcome.redirected
+
+    seen = []
+    monkeypatch.setattr(
+        plugins, "invoke_hook",
+        lambda name, **kwargs: seen.append(kwargs["context"]) or [{"action": "send"}],
+    )
+    await finalize_reply_policy(opening, {"completed": True}, "answer")
+
+    assert seen == [{
+        "platform": "feishu", "chat_type": "group", "profile": "joi", "chat_id": "c1",
+        "sender_id": "bob", "sender_name": "Bob", "sender_is_bot": False,
+        "message_id": "B", "sender_open_id": "bob-open", "has_media": False,
+        "text": "answer",
+    }]
+    assert (opening.source.user_id, opening.source.profile, opening.message_id) == ("alice", "joi", "A")
+
+
+@pytest.mark.asyncio
+async def test_reply_policy_sender_never_crosses_busy_profile_boundary(monkeypatch):
+    from hermes_cli import plugins
+    from gateway.reply_policy import finalize_reply_policy
+
+    runner = GatewayRunner(config=GatewayConfig())
+    receiver = Receiver()
+    opening, _, _, _ = _running_turn(runner, "key", receiver)
+    opening.source = SessionSource(
+        platform=Platform.FEISHU, chat_id="c1", user_id="alice", user_name="Alice",
+        chat_type="group", profile="joi",
+    )
+    foreign = MessageEvent(
+        text="foreign steer",
+        source=SessionSource(
+            platform=Platform.FEISHU, chat_id="c1", user_id="mallory", user_name="Mallory",
+            chat_type="group", profile="other",
+        ),
+        message_id="foreign-message",
+    )
+
+    runner._fold_into_running_turn(receiver, "key", foreign)
+    seen = []
+    monkeypatch.setattr(
+        plugins, "invoke_hook",
+        lambda name, **kwargs: seen.append(kwargs["context"]) or [{"action": "send"}],
+    )
+    await finalize_reply_policy(opening, {"completed": True}, "answer")
+
+    assert seen[0]["profile"] == "joi"
+    assert seen[0]["sender_id"] == "alice"
+    assert seen[0]["message_id"] == "A"

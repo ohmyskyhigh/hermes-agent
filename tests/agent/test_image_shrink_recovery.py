@@ -18,6 +18,7 @@ payload rewriter.
 from __future__ import annotations
 
 import base64
+import pytest
 import sys
 from types import SimpleNamespace
 
@@ -96,6 +97,24 @@ class TestImageTooLargeClassification:
         result = classify_api_error(err, provider="openai-codex", model="gpt-5.6-sol")
         assert result.reason == FailoverReason.image_too_large
         assert result.retryable is True
+
+    def test_legacy_codex_patch_budget_reports_safe_dimension(self):
+        err = _FakeApiError(
+            status_code=400,
+            message=(
+                "Invalid image provided: Image dimensions 2500x13418 requires "
+                "33180 patches, exceeding the limit of 30000."
+            ),
+        )
+        assert _image_error_max_dimension(err) == 5536
+
+    def test_unrelated_patch_limit_is_not_an_image_error(self):
+        err = _FakeApiError(
+            status_code=400,
+            message="JSON diff requires 33180 patches, exceeding the limit of 30000.",
+        )
+        result = classify_api_error(err, provider="custom", model="x")
+        assert result.reason != FailoverReason.image_too_large
 
     def test_unrelated_400_still_not_image_too_large(self):
         """The new "media" patterns must not widen into ordinary 400s."""
@@ -728,4 +747,24 @@ class TestShrinkCopyOnWriteHistoryIsolation:
         # ...but the stored history still has the original bytes.
         assert history_msg["content"][0] is history_part
         assert history_part["image_url"]["url"] == oversized_url
+
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Invalid image provided: Image dimensions 2500x13418 requires "
+        "33180 patches, exceeding the limit of 30000.",
+        "The image you provided requires 33180 patches after processing, "
+        "exceeding the limit of 30000. Please resize the image and try again.",
+    ],
+)
+def test_image_patch_limit_enters_shrink_recovery(message):
+    result = classify_api_error(
+        _FakeApiError(status_code=400, message=message),
+        provider="openai-codex",
+        model="gpt-6-astra",
+    )
+    assert result.reason == FailoverReason.image_too_large
+    assert result.retryable is True
 

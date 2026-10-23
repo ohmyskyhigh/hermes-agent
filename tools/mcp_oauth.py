@@ -1261,9 +1261,13 @@ def build_oauth_auth(server_name: str, server_url: str, oauth_config: dict | Non
             "initial authorization, then cached tokens will be reused.")
     kwargs = build_provider_kwargs(cfg, storage, ssh_proxy_hint=True)
     if HermesOAuthClientProvider is None:
-        from tools.mcp_oauth_provider import HermesProviderMixin
+        from tools.mcp_oauth_manager import HermesMCPOAuthProvider
 
-        HermesOAuthClientProvider = type("HermesOAuthClientProvider", (HermesProviderMixin, _sdk_class("OAuthClientProvider")), {
-            "__doc__": "SDK provider plus Hermes' token-endpoint fixes (see ``HermesProviderMixin``).",
-            "__module__": __name__, "_hermes_logger": logger})
-    return HermesOAuthClientProvider(server_url=server_url, **kwargs)
+        HermesOAuthClientProvider = HermesMCPOAuthProvider
+    return HermesOAuthClientProvider(
+        server_name=server_name,
+        preregistered=bool(cfg.get("client_id")),
+        server_url=server_url,
+        authorization_server_url=cfg.get("authorization_server_url"),
+        **kwargs,
+    )

@@ -42,7 +42,13 @@ async def _discover(client, provider):
             break
     # RFC 9728 lets a resource advertise several authorization servers; a browser-only
     # server often comes first and the device-code one later, so try each in order.
-    servers = [str(url) for url in prm.authorization_servers] if prm else [None]
+    advertised = [str(url) for url in prm.authorization_servers] if prm else []
+    if provider._hermes_authorization_server_url:
+        selected = provider._select_authorization_server(advertised)
+        provider._select_configured_authorization_server(selected)
+        servers = [selected]
+    else:
+        servers = advertised or [None]
     failures = []
     for auth_server_url in servers:
         try:
@@ -211,9 +217,14 @@ async def login_device(name, server_url, oauth_config):
     cfg, storage = prepare_oauth_config(name, server_url, oauth_config)
     # Device flow never binds a callback socket or uses the hosted browser CIMD.
     cfg["_resolved_port"] = cfg.get("redirect_port", 8420)
-    provider = HermesMCPOAuthProvider(server_url=server_url, server_name=name, storage=storage,
-                                     client_metadata=_build_client_metadata(cfg),
-                                     token_user_agent=cfg.get("user_agent"))
+    provider = HermesMCPOAuthProvider(
+        server_url=server_url,
+        server_name=name,
+        storage=storage,
+        client_metadata=_build_client_metadata(cfg),
+        token_user_agent=cfg.get("user_agent"),
+        authorization_server_url=cfg.get("authorization_server_url"),
+    )
     httpx = sdk_httpx()
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:

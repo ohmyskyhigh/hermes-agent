@@ -1666,20 +1666,35 @@ class FeishuAdapter(BasePlatformAdapter):
         # Lock the markdown decision at the whole-message level so every chunk consistently uses ``post``.
         # See #26841.
         prefer_post = bool(_MARKDOWN_HINT_RE.search(formatted))
+        # Native handoffs inside post/md are only literal text. Check the actual message prefix
+        # before splitting, never ``<at>`` examples inside code fences.
+        explicit_handoff = re.match(
+            r'\A<at user_id="ou_[A-Za-z0-9_-]+">[^<>\n]*</at>', formatted)
         last_response = None
+        from plugins.platforms.feishu.mentions import add_recipient_mentions
 
-        async def _send_plain(chunk: str) -> Any:
+        async def _send_plain(chunk: str, mentions) -> Any:
+            payload = json.dumps(
+                {"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False)
             return await self._feishu_send_with_retry(
                 chat_id=chat_id,
                 msg_type="text",
-                payload=json.dumps({"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False),
+                payload=add_recipient_mentions("text", payload, mentions),
                 reply_to=reply_to,
                 metadata=metadata,
             )
 
         try:
-            for chunk in chunks:
-                msg_type, payload = self._build_outbound_payload(chunk, prefer_post=prefer_post)
+            for chunk_index, chunk in enumerate(chunks):
+                mentions = (metadata or {}).get("mentions") if chunk_index == 0 else None
+                if explicit_handoff:
+                    msg_type = "text"
+                    payload = json.dumps(
+                        {"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False)
+                else:
+                    msg_type, payload = self._build_outbound_payload(
+                        chunk, prefer_post=prefer_post)
+                payload = add_recipient_mentions(msg_type, payload, mentions)
                 try:
                     response = await self._feishu_send_with_retry(
                         chat_id=chat_id, msg_type=msg_type, payload=payload, reply_to=reply_to, metadata=metadata,
@@ -1688,15 +1703,19 @@ class FeishuAdapter(BasePlatformAdapter):
                     if msg_type != "post" or not _POST_CONTENT_INVALID_RE.search(str(exc)):
                         raise
                     logger.warning("[Feishu] Invalid post payload rejected by API; falling back to plain text")
-                    response = await _send_plain(chunk)
+                    response = await _send_plain(chunk, mentions)
                 if (
                     msg_type == "post"
                     and not self._response_succeeded(response)
                     and _POST_CONTENT_INVALID_RE.search(str(getattr(response, "msg", "") or ""))
                 ):
                     logger.warning("[Feishu] Post payload rejected by API response; falling back to plain text")
-                    response = await _send_plain(chunk)
+                    response = await _send_plain(chunk, mentions)
                 last_response = response
+                if ((metadata or {}).get("mentions") or explicit_handoff) \
+                        and not self._response_succeeded(response):
+                    return self._finalize_send_result(
+                        response, "directed reply send failed")
 
             return self._finalize_send_result(last_response, "send failed")
         except Exception as exc:
