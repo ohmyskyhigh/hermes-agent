@@ -685,3 +685,34 @@ class PluginDispatchMixin:
                 # Runs once per tool call like a hook, so a mis-declared callback floods identically.
                 self._report_hook_failure(kind, cb, kwargs, exc, surface="Middleware")
         return results
+
+
+def _resolve_hook_callback_timeout() -> float:
+    """Effective hook-callback timeout from ``plugins.hook_callback_timeout`` (default 30s; ``<= 0``
+    disables the threaded path; clamped to ``_MAX_HOOK_CALLBACK_TIMEOUT_SECS``).
+
+    ``invoke_hook`` calls this once per hook invocation; ``load_config_readonly()`` serves cache hits
+    without ``_CONFIG_LOCK``, so this is a stat + dict lookup per call and needs no memo of its own.
+    """
+    from hermes_cli.plugins import (
+        _HOOK_CALLBACK_TIMEOUT_SECS, _MAX_HOOK_CALLBACK_TIMEOUT_SECS, load_config_readonly, logger,
+    )
+    default = _HOOK_CALLBACK_TIMEOUT_SECS
+    try:
+        plugins_cfg = (load_config_readonly() or {}).get("plugins")
+        if not isinstance(plugins_cfg, dict) or plugins_cfg.get("hook_callback_timeout") is None:
+            return default
+        timeout = float(plugins_cfg["hook_callback_timeout"])
+    except (TypeError, ValueError):
+        logger.warning("plugins.hook_callback_timeout is not a number; using default %gs", default)
+        return default
+    except Exception:
+        return default
+    if timeout < 0:
+        logger.warning("plugins.hook_callback_timeout=%g is negative; using default %gs", timeout, default)
+        return default
+    if timeout > _MAX_HOOK_CALLBACK_TIMEOUT_SECS:
+        logger.warning("plugins.hook_callback_timeout=%g exceeds max %gs; clamping", timeout,
+                       _MAX_HOOK_CALLBACK_TIMEOUT_SECS)
+        return _MAX_HOOK_CALLBACK_TIMEOUT_SECS
+    return timeout

@@ -462,6 +462,45 @@ class TestStreamingResilience:
         assert result["api_calls"] == 0
 
     @pytest.mark.asyncio
+    async def test_eof_after_partial_response_marks_result_partial_and_bypasses_reply_policy(
+        self, monkeypatch,
+    ):
+        from hermes_cli import plugins
+        from gateway.platforms.event import MessageEvent
+        from gateway.reply_policy import finalize_reply_policy
+
+        monkeypatch.setenv("GATEWAY_PROXY_URL", "http://host:8642")
+        monkeypatch.delenv("GATEWAY_PROXY_KEY", raising=False)
+        runner = _make_runner()
+        source = _make_source()
+        resp = _FakeSSEResponse(
+            status=200,
+            sse_chunks=['data: {"choices":[{"delta":{"content":"partial answer"}}]}\n'],
+        )
+        session = _FakeSession(resp)
+
+        with patch("gateway.run._load_gateway_config", return_value={}):
+            with _patch_aiohttp(session):
+                with patch("aiohttp.ClientTimeout"):
+                    result = await runner._run_agent_via_proxy(
+                        message="hi", context_prompt="", history=[], source=source,
+                        session_id="test",
+                    )
+
+        hook = MagicMock(return_value=[{"action": "suppress"}])
+        monkeypatch.setattr(plugins, "invoke_hook", hook)
+        decision = await finalize_reply_policy(
+            MessageEvent(text="hi", source=source, message_id="message-1"),
+            result,
+            result["final_response"],
+        )
+
+        assert result["final_response"] == "partial answer"
+        assert result["partial"] is True
+        assert decision is None
+        hook.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_client_timeout_sets_sock_connect(self, monkeypatch):
         """ClientTimeout must bound the TCP connect phase.
 

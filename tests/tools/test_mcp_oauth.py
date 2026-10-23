@@ -44,9 +44,7 @@ async def _wait_for_callback():
 
 
 def _set_interactive_stdin(monkeypatch, *, is_tty: bool = True) -> None:
-    mock_stdin = MagicMock()
-    mock_stdin.isatty.return_value = is_tty
-    monkeypatch.setattr("tools.mcp_oauth.sys.stdin", mock_stdin)
+    monkeypatch.setattr("tools.mcp_oauth._stdin_is_console", lambda: is_tty)
 
 
 def _hit_callback_when_ready(url: str, timeout: float = 15.0) -> None:
@@ -222,6 +220,99 @@ class TestHermesTokenStorage:
 # ---------------------------------------------------------------------------
 
 class TestBuildOAuthAuth:
+    @pytest.mark.asyncio
+    async def test_device_discovery_uses_only_configured_advertised_server(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.mcp_oauth import _build_client_metadata
+        from tools.mcp_oauth_device import _discover
+        from tools.mcp_oauth_manager import HermesMCPOAuthProvider
+        from tools.mcp_oauth_provider import prepare_oauth_config
+        from tools.mcp_tool import sdk_httpx
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        server_url = "https://mcp.example.com/mcp"
+        configured = "https://chosen.example.com"
+        cfg, storage = prepare_oauth_config("device", server_url, {})
+        cfg["_resolved_port"] = cfg.get("redirect_port", 8420)
+        provider = HermesMCPOAuthProvider(
+            server_url=server_url,
+            server_name="device",
+            storage=storage,
+            client_metadata=_build_client_metadata(cfg),
+            authorization_server_url=configured,
+        )
+        httpx = sdk_httpx()
+
+        class Client:
+            def __init__(self):
+                self.requested = []
+
+            async def get(self, url):
+                url = str(url)
+                self.requested.append(url)
+                request = httpx.Request("GET", url)
+                if url == server_url:
+                    return httpx.Response(
+                        401,
+                        headers={"WWW-Authenticate": 'Bearer resource_metadata="https://mcp.example.com/prm"'},
+                        request=request,
+                    )
+                if url == "https://mcp.example.com/prm":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "resource": server_url,
+                            "authorization_servers": [
+                                "https://other.example.com",
+                                configured,
+                            ],
+                        },
+                        request=request,
+                    )
+                if "other.example.com" in url:
+                    raise AssertionError("device discovery requested an unconfigured issuer")
+                return httpx.Response(
+                    200,
+                    json={
+                        "issuer": configured,
+                        "token_endpoint": f"{configured}/token",
+                        "device_authorization_endpoint": f"{configured}/device",
+                        "response_types_supported": [],
+                        "grant_types_supported": [
+                            "urn:ietf:params:oauth:grant-type:device_code"
+                        ],
+                    },
+                    request=request,
+                )
+
+        client = Client()
+        await _discover(client, provider)
+
+        assert provider.context.auth_server_url == configured
+        assert str(provider.context.oauth_metadata.issuer).rstrip("/") == configured
+        assert all("other.example.com" not in url for url in client.requested)
+
+    @pytest.mark.asyncio
+    async def test_device_login_validates_configured_authorization_server(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.mcp_oauth_device import login_device
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+
+        def unexpected_http_client():
+            raise AssertionError("invalid issuer must fail before creating an HTTP client")
+
+        monkeypatch.setattr("tools.mcp_tool.sdk_httpx", unexpected_http_client)
+
+        with pytest.raises(ValueError, match="authorization_server_url"):
+            await login_device(
+                "device",
+                "https://mcp.example.com/mcp",
+                {"authorization_server_url": "http://issuer.example.com"},
+            )
+
     def test_returns_none_without_sdk(self, monkeypatch):
         import tools.mcp_oauth as mod
         monkeypatch.setattr(mod, "_OAUTH_AVAILABLE", False)
@@ -239,6 +330,25 @@ class TestBuildOAuthAuth:
         })
         assert provider is not None
         assert provider.context.client_metadata.scope == "read write admin"
+
+    def test_legacy_builder_uses_manager_provider_with_configured_issuer(
+        self, tmp_path, monkeypatch
+    ):
+        import tools.mcp_oauth as oauth
+        from tools.mcp_oauth_manager import HermesMCPOAuthProvider
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setattr(oauth, "_is_interactive", lambda: True)
+        monkeypatch.setattr(oauth, "HermesOAuthClientProvider", None)
+
+        provider = build_oauth_auth(
+            "legacy",
+            "https://mcp.example.com/mcp",
+            {"authorization_server_url": "https://issuer.example.com"},
+        )
+
+        assert isinstance(provider, HermesMCPOAuthProvider)
+        assert provider._hermes_authorization_server_url == "https://issuer.example.com"
 
 
     @pytest.mark.asyncio
@@ -692,9 +802,7 @@ class TestIsInteractive:
     def test_suppress_interactive_oauth_disables_stdin_prompts(self, monkeypatch):
         import tools.mcp_oauth as mod
 
-        mock_stdin = MagicMock()
-        mock_stdin.isatty.return_value = True
-        monkeypatch.setattr("tools.mcp_oauth.sys.stdin", mock_stdin)
+        monkeypatch.setattr("tools.mcp_oauth._stdin_is_console", lambda: True)
 
         assert _is_interactive() is True
         with mod.suppress_interactive_oauth():
@@ -711,9 +819,7 @@ class TestIsInteractive:
         import threading
         import tools.mcp_oauth as mod
 
-        mock_stdin = MagicMock()
-        mock_stdin.isatty.return_value = True
-        monkeypatch.setattr("tools.mcp_oauth.sys.stdin", mock_stdin)
+        monkeypatch.setattr("tools.mcp_oauth._stdin_is_console", lambda: True)
 
         loop = asyncio.new_event_loop()
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)

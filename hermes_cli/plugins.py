@@ -174,6 +174,9 @@ VALID_HOOKS: set[str] = {
     #   (privacy: task ids, assignees, workspace paths).
     "on_kanban_worker_spawned", "on_kanban_worker_exited", "on_kanban_worker_stale_claim",
     "on_kanban_task_updated", "on_kanban_dispatch_tick",
+    # gateway_reply_policy: conversational egress classification. Prepare may request buffering;
+    # final may send/suppress/defer and attach native mention recipients.
+    "gateway_reply_policy",
     # gateway_platform_event: normalized envelopes only, never raw SDK objects or adapter handles.
     # Kwargs: platform, event_type, payload (event_type-local; see hooks.md). New event types land
     # only together with real fire-sites.
@@ -1080,32 +1083,7 @@ for _name, _method in list(vars(PluginContext).items()):
 del _name, _method
 
 
-def _resolve_hook_callback_timeout() -> float:
-    """Effective hook-callback timeout from ``plugins.hook_callback_timeout`` (default 30s; ``<= 0``
-    disables the threaded path; clamped to ``_MAX_HOOK_CALLBACK_TIMEOUT_SECS``).
-
-    ``invoke_hook`` calls this once per hook invocation; ``load_config_readonly()`` serves cache hits
-    without ``_CONFIG_LOCK``, so this is a stat + dict lookup per call and needs no memo of its own.
-    """
-    default = _HOOK_CALLBACK_TIMEOUT_SECS
-    try:
-        plugins_cfg = (load_config_readonly() or {}).get("plugins")
-        if not isinstance(plugins_cfg, dict) or plugins_cfg.get("hook_callback_timeout") is None:
-            return default
-        timeout = float(plugins_cfg["hook_callback_timeout"])
-    except (TypeError, ValueError):
-        logger.warning("plugins.hook_callback_timeout is not a number; using default %gs", default)
-        return default
-    except Exception:
-        return default
-    if timeout < 0:
-        logger.warning("plugins.hook_callback_timeout=%g is negative; using default %gs", timeout, default)
-        return default
-    if timeout > _MAX_HOOK_CALLBACK_TIMEOUT_SECS:
-        logger.warning("plugins.hook_callback_timeout=%g exceeds max %gs; clamping", timeout,
-                       _MAX_HOOK_CALLBACK_TIMEOUT_SECS)
-        return _MAX_HOOK_CALLBACK_TIMEOUT_SECS
-    return timeout
+from hermes_cli.plugins_dispatch import _resolve_hook_callback_timeout
 
 
 class PluginManager(PluginLoaderMixin, PluginDispatchMixin, PluginLedgerMixin):

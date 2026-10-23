@@ -560,6 +560,11 @@ class GatewayTurnPersistenceMixin:
         Returns the text for the adapter to send, or ``None`` when already delivered."""
         if diagnostic_wake_muted(event):
             return None
+        from gateway.reply_policy import finalize_reply_policy
+        with self._profile_scope_for_source(source):
+            decision = await finalize_reply_policy(event, agent_result, response)
+        if decision and decision["action"] in ("suppress", "defer"):
+            return None
         # Intentional silence is a delivery decision: the [SILENT] turn stays persisted (alternation).
         if _intentional_silence:
             logger.info("Suppressing intentional silence marker for session %s", session_entry.session_id)
@@ -573,6 +578,9 @@ class GatewayTurnPersistenceMixin:
         if not _streaming_tts_done and self._should_send_voice_reply(
             event, response, agent_messages, already_sent=bool(agent_result.get("already_sent")),
         ):
+            if getattr(event, "_reply_policy_mentions", None) and adapter:
+                from gateway.reply_policy import policy_text_before_voice
+                await policy_text_before_voice(self, event, response, adapter)
             await self._send_voice_reply(event, response)
 
         # Streamed responses still need MEDIA: files delivered (chunks carry the tags verbatim). Never

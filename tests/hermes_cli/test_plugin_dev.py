@@ -40,6 +40,28 @@ def test_doctor_uses_registration_to_reject_bad_hook_and_callback_signature(
     assert "must accept **kwargs" in messages
 
 
+def test_doctor_accepts_and_registers_gateway_reply_policy_hook(tmp_path: Path) -> None:
+    from hermes_cli.plugin_dev import doctor_plugin
+
+    plugin = tmp_path / "gateway-policy"
+    plugin.mkdir()
+    (plugin / "plugin.yaml").write_text(
+        "name: gateway-policy\nprovides_hooks: [gateway_reply_policy]\n",
+        encoding="utf-8",
+    )
+    (plugin / "__init__.py").write_text(
+        "def policy(**kwargs):\n    return {'action': 'send'}\n\n"
+        "def register(ctx):\n"
+        "    ctx.register_hook('gateway_reply_policy', policy)\n",
+        encoding="utf-8",
+    )
+
+    report = doctor_plugin(plugin)
+
+    assert report.ok, report.format_text()
+    assert report.registered_hooks == ("gateway_reply_policy",)
+
+
 def test_doctor_accepts_manifest_defaults_from_runtime_parser(tmp_path: Path) -> None:
     from hermes_cli.plugin_dev import doctor_plugin
 

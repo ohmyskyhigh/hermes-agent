@@ -1,0 +1,7 @@
+name: feishu-group-reply-policy
+version: 0.1.0
+description: Buffer Feishu group replies and decide directed mentions or terminal silence; DMs are unchanged.
+author: JOI
+kind: standalone
+provides_hooks:
+  - gateway_reply_policy
