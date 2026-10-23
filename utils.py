@@ -461,12 +461,32 @@ def _roundtrip_load(path: Path):
 
 
 def _roundtrip_dump(path: Path, yaml_rt, config, *, extra_content: str | None = None) -> None:
+    from io import StringIO
+
+    _flow_empty_yaml_mappings(config)
+    output = StringIO()
+    yaml_rt.dump(config, output)
+    text = output.getvalue() + (extra_content or "")
+    # Validate before replacement: an emitter failure must leave the readable original intact.
+    yaml.safe_load(text)
+
     def _write(f) -> None:
-        yaml_rt.dump(config, f)
-        if extra_content:
-            f.write(extra_content)
+        f.write(text)
 
     _atomic_write(path, _write, prefix=f".{path.stem}_", mode=_preserve_file_mode(path))
+
+
+def _flow_empty_yaml_mappings(node) -> None:
+    """Keep ruamel's empty maps indented when their leading comments survive deletion."""
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+    if not isinstance(node, (CommentedMap, CommentedSeq)):
+        return
+    if isinstance(node, CommentedMap) and not node:
+        node.fa.set_flow_style()
+        return
+    for child in node.values() if isinstance(node, CommentedMap) else node:
+        _flow_empty_yaml_mappings(child)
 
 
 def atomic_roundtrip_yaml_update(path: str | Path, key_path: str, value: Any) -> None:
