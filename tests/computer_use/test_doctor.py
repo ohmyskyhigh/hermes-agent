@@ -20,6 +20,7 @@ shape.
 from __future__ import annotations
 
 import json
+import sys
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -259,7 +260,11 @@ class TestDriverCmdResolution:
     @staticmethod
     def _executable(path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("#!/bin/sh\nexit 0\n")
+        if sys.platform == "win32":
+            path = path.with_suffix(".exe")
+            path.write_bytes(Path(sys.executable).read_bytes())
+        else:
+            path.write_text("#!/bin/sh\nexit 0\n")
         path.chmod(0o755)
         return path
 
