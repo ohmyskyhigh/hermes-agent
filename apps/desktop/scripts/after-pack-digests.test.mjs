@@ -13,6 +13,13 @@ const python = process.env.HERMES_PYTHON || 'python'
 
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'after-pack-digests-'))
+  // afterPack validates the packaged readiness parser before its digest work.
+  // Supply the same unpacked ASAR mirror as the other afterPack fixtures.
+  const asar = path.join(directory, 'resources', 'app.asar')
+  fs.mkdirSync(path.join(`${asar}.unpacked`, 'dist'), { recursive: true })
+  fs.writeFileSync(asar, 'stub archive')
+  fs.writeFileSync(path.join(`${asar}.unpacked`, 'dist', 'electron-main.mjs'),
+    'const re = /HERMES_(?:BACKEND|DASHBOARD)_READY[^\\n]*port=(\\d+)/m\n')
   const payload = path.join(directory, 'resources', 'agent-payload')
   const binary = path.join(payload, 'tools', 'uv', 'uv.exe')
   fs.mkdirSync(path.dirname(binary), { recursive: true })

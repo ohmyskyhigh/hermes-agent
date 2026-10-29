@@ -11,6 +11,7 @@ from datetime import datetime
 import json
 import logging
 
+from gateway.attachment_refs import validate_attachment_refs
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.session import SessionSource
 from gateway.session_ingress_media import capture_native_media, restore_native_media
@@ -23,6 +24,7 @@ _EVENT_FIELDS = (
     'reply_to_message_id', 'reply_to_text', 'reply_to_author_id',
     'reply_to_author_name', 'reply_to_is_own_message', 'allow_gateway_control',
 )
+_OPTIONAL_EVENT_FIELDS = ('sender_open_id', 'mentioned_user_ids', 'topic_root_message_id', 'native_task_text')
 # ``reply_anchor_override`` = '' is Telegram topic transfer's "do not quote the root DM" (#139136).
 _CONTEXT_FIELDS = ('auto_skill', 'channel_prompt', 'channel_context', 'reply_expected', 'reply_anchor_override',
                    'edit_revision')
@@ -65,6 +67,13 @@ def _adapter_event(event, **changes):
     """An adapter's event at the envelope boundary: an absent media list (``None``) is no media.
     Any other non-list still reaches ``_validate_native`` and refuses."""
     changes.update({name: [] for name in _MEDIA_FIELDS if getattr(event, name) is None})
+    if event.attachment_refs is not None:
+        # The async admission path yields to authorization before snapshotting.
+        # Freeze resource identities now, not after caller-owned lists can change.
+        try:
+            changes['attachment_refs'] = validate_attachment_refs(event.attachment_refs, event.source)
+        except ValueError:
+            _refuse(event, 'invalid_params', 'attachment_refs')
     return replace(event, **changes) if changes else event
 
 
@@ -145,6 +154,24 @@ def _validate_native(runner, event, provenance=None, fresh_roles=False):
             _refuse(event, 'invalid_params', name)
     if event.reply_expected is not None and type(event.reply_expected) is not bool:
         _refuse(event, 'invalid_params', 'reply_expected')
+    if event.sender_open_id is not None and not isinstance(event.sender_open_id, str):
+        _refuse(event, 'invalid_params', 'sender_open_id')
+    if type(event.native_mention_self) is not bool:
+        _refuse(event, 'invalid_params', 'native_mention_self')
+    if type(event.native_mentions_present) is not bool:
+        _refuse(event, 'invalid_params', 'native_mentions_present')
+    try:
+        validate_attachment_refs(event.attachment_refs, source)
+    except ValueError:
+        _refuse(event, 'invalid_params', 'attachment_refs')
+    if event.native_task_text is not None and not isinstance(event.native_task_text, str):
+        _refuse(event, 'invalid_params', 'native_task_text')
+    if event.topic_root_message_id is not None and not isinstance(event.topic_root_message_id, str):
+        _refuse(event, 'invalid_params', 'topic_root_message_id')
+    if event.mentioned_user_ids is not None and (not isinstance(event.mentioned_user_ids, list)
+            or len(event.mentioned_user_ids) > 100
+            or not all(isinstance(i, str) for i in event.mentioned_user_ids)):
+        _refuse(event, 'invalid_params', 'mentioned_user_ids')
     skill = event.auto_skill
     if not (skill is None or isinstance(skill, str)
             or isinstance(skill, list) and all(isinstance(item, str) for item in skill)):
@@ -230,6 +257,14 @@ def _snapshot_native(runner, event, provenance, fresh_roles=False, encoded_sourc
     # its fingerprint. Explicit context (including an empty skill list) is exact.
     envelope['event'].update({name: deepcopy(getattr(event, name)) for name in _CONTEXT_FIELDS
                               if getattr(event, name) is not None})
+    envelope['event'].update({name: deepcopy(getattr(event, name)) for name in _OPTIONAL_EVENT_FIELDS
+                              if getattr(event, name) is not None})
+    if event.attachment_refs:
+        envelope['event']['attachment_refs'] = deepcopy(event.attachment_refs)
+    if event.native_mention_self:
+        envelope['event']['native_mention_self'] = True
+    if event.native_mentions_present:
+        envelope['event']['native_mentions_present'] = True
     if event.inherit_channel_pin is True:  # synthetic goal/resume turn reuses the session's pins (#126109)
         envelope['event']['inherit_channel_pin'] = True
     if metadata := _native_metadata(event):
@@ -279,6 +314,13 @@ def restore_native_source(payload, runner=None):
 def restore_native(payload, runner=None):
     envelope = payload['native_text_v1']
     source = restore_native_source(payload, runner)
+    fields = deepcopy(envelope['event'])
+    if 'attachment_refs' in fields:
+        try:
+            refs = validate_attachment_refs(fields['attachment_refs'], source)
+        except ValueError as exc:
+            raise RuntimeStoreError('invalid_params', field='attachment_refs') from exc
+        fields['attachment_refs'] = refs or None
     timestamp = datetime.fromisoformat(envelope['timestamp'])
     if timestamp.tzinfo is not None and timestamp.timestamp() == 0:
         # Epoch 0 pins the retry fingerprint of producers with no provider time (relay, webhook,
@@ -287,7 +329,7 @@ def restore_native(payload, runner=None):
     event = MessageEvent(text=payload['text'], source=source, timestamp=timestamp,
                         message_type=MessageType(envelope.get('message_type', 'text')),
                         media_urls=restore_native_media(envelope.get('media', [])),
-                        **deepcopy(envelope['event']))
+                        **fields)
     if 'automation' in envelope:
         event.internal = True
         if envelope['automation'].get('heartbeat'):
@@ -297,6 +339,8 @@ def restore_native(payload, runner=None):
         from gateway.session_automation import automation_display_metadata, automation_notification_metadata
         event.metadata.update(automation_notification_metadata(envelope['automation']))
         event.metadata.update(automation_display_metadata(envelope['automation']))
+        from gateway.topic_campaign_binding import restore_campaign_metadata
+        restore_campaign_metadata(event, envelope['automation'])
     return event
 
 

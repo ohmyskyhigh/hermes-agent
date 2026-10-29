@@ -148,7 +148,7 @@ def _parent_is_live(proc) -> bool:
 
 
 def _detect_venv_python_processes(*, exclude_pids: set[int] | None = None) -> list[tuple[int, str, str]]:
-    """Live processes running from the project venv's interpreter as ``(pid, name, cmdline)``; never raises.
+    """Live processes in this install's selected environment as ``(pid, name, cmdline)``.
 
     The hermes.exe shim guard misses the Desktop backend and anything off ``venv\\Scripts\\python(w).exe``;
     they keep ``.pyd`` files mapped so a mid-update dependency sync dies half-way. Empty off-Windows / without
@@ -160,8 +160,8 @@ def _detect_venv_python_processes(*, exclude_pids: set[int] | None = None) -> li
     psutil = _psutil()
     if not _m()._is_windows() or psutil is None:
         return []
-    from hermes_constants import project_venv_dir
-    venv_dir = project_venv_dir(_m().PROJECT_ROOT) or _m().PROJECT_ROOT / "venv"
+    from pm.environments import selected_venv
+    venv_dir = selected_venv(_m().PROJECT_ROOT)
     venv_prefix = _lower_dir_prefix(venv_dir)
     root_prefix = _lower_dir_prefix(_m().PROJECT_ROOT)
     skip = set(exclude_pids or set()) | _self_and_non_gateway_ancestor_pids(psutil)
@@ -337,10 +337,9 @@ def list_venv_holders() -> list[dict]:
 
     Off Windows (or without psutil) the guard never fires, so the list is empty. ``exe``/``argv`` are the
     live psutil values when readable (the scan may carry only a cmdline prefix)."""
-    from hermes_cli.update_cmd import _m
     psutil = _psutil()
     holders: list[dict] = []
-    for pid, name, cmdline in _m()._detect_venv_python_processes():
+    for pid, name, cmdline in _detect_venv_python_processes():
         exe, argv = name, cmdline
         if psutil is not None:
             with suppress(Exception):

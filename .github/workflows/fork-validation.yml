@@ -1,0 +1,164 @@
+name: Fork validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Fork regression (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+          - platform: windows
+            runner: windows-latest
+          - platform: macos
+            runner: macos-latest
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      POLICY_SHA256: 560255410fb7ec819f9ae95dfcf5cfee1d9fed9f25340d567773f2b4940bb798
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Isolate mutable Hermes state
+        run: |
+          echo "HERMES_HOME=$RUNNER_TEMP/fork-home" >> "$GITHUB_ENV"
+          echo "HERMES_RUNTIME_DIR=$RUNNER_TEMP/fork-runtime" >> "$GITHUB_ENV"
+      - name: Set up locked dependencies without production configuration
+        uses: ./.github/actions/setup-pm
+        with:
+          extras: '["feishu", "messaging", "telegram"]'
+          test-environment: 'true'
+      - name: Canonical static checks
+        if: runner.os == 'Linux'
+        run: '"$HERMES_PYTHON" scripts/check'
+      - name: Verify exact candidate and run externally pinned regression list
+        run: |
+          "$HERMES_PYTHON" scripts/ci/fork_validation.py --bash "$BASH" \
+            --platform '${{ matrix.platform }}' --expected-commit "$EXPECTED_SHA" \
+            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/fork-evidence" --jobs 4
+      - name: Upload exact-SHA evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fork-validation-${{ matrix.platform }}-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/fork-evidence
+          if-no-files-found: error
+      - uses: ./.github/actions/check-clean-worktree
+
+  javascript:
+    uses: ./.github/workflows/js-tests.yml
+    with:
+      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  windows-install-update:
+    uses: ./.github/workflows/windows-install-update-e2e.yml
+    with:
+      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+      strict_acceptance: '1'
+
+  native-javascript:
+    name: Fork native JavaScript (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+          - platform: macos
+            runner: macos-latest
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      POLICY_SHA256: 560255410fb7ec819f9ae95dfcf5cfee1d9fed9f25340d567773f2b4940bb798
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          persist-credentials: false
+      - name: Isolate mutable Hermes state
+        run: |
+          echo "HERMES_HOME=$RUNNER_TEMP/native-js-home" >> "$GITHUB_ENV"
+          echo "HERMES_RUNTIME_DIR=$RUNNER_TEMP/native-js-runtime" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/setup-pm
+        with:
+          toolchain: all
+          extras: '[]'
+          test-environment: 'true'
+      - name: Verify pinned candidate and select required native assertions
+        run: |
+          "$HERMES_PYTHON" scripts/ci/fork_native_javascript.py --initialize \
+            --platform '${{ matrix.platform }}' --expected-commit "$EXPECTED_SHA" \
+            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/native-js-evidence"
+      - name: Install locked desktop dependencies and prepare Electron
+        run: |
+          npm ci
+          node scripts/build/electron-runtime.mjs --source .
+      - name: Execute applicable native desktop and package admission tests
+        run: |
+          export HERMES_TEST_PYTHON="$HERMES_PYTHON"
+          desktop=(); while IFS= read -r file; do desktop+=("$file"); done < "$RUNNER_TEMP/native-js-evidence/desktop-files.txt"
+          # Cold certificate checks and SDK provisioning must not compete for
+          # this host's two cores while their original per-test deadlines run.
+          npm run --prefix apps/desktop test:desktop:platforms -- --maxWorkers=1 --retry=0 \
+            --reporter=json --outputFile="$RUNNER_TEMP/native-js-evidence/desktop.json" "${desktop[@]}"
+          root=(); while IFS= read -r file; do root+=("$file"); done < "$RUNNER_TEMP/native-js-evidence/root-files.txt"
+          npm run --prefix tests-js test -- --retry=0 --reporter=json \
+            --outputFile="$RUNNER_TEMP/native-js-evidence/root.json" "${root[@]}"
+      - name: Reject missing, skipped or failed native assertions
+        run: |
+          "$HERMES_PYTHON" scripts/ci/fork_native_javascript.py \
+            --platform '${{ matrix.platform }}' --expected-commit "$EXPECTED_SHA" \
+            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/native-js-evidence"
+      - name: Upload exact-SHA native evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fork-native-javascript-${{ matrix.platform }}-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/native-js-evidence
+          if-no-files-found: error
+      - uses: ./.github/actions/check-clean-worktree
+
+  required:
+    name: Fork required validation
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [regression, javascript, windows-install-update, native-javascript]
+    steps:
+      - name: Require every lane to complete successfully
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          bad = {name: value['result'] for name, value in results.items() if value['result'] != 'success'}
+          if bad:
+              raise SystemExit(f'Required lanes did not all pass: {bad}')
+          print('All required lanes completed successfully on the pinned candidate.')
+          PY

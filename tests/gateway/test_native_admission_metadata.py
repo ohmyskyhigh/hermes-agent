@@ -87,14 +87,24 @@ async def test_real_whatsapp_bridge_events_run_a_turn_through_native_admission(t
 @pytest.mark.asyncio
 async def test_native_codec_closed_metadata_contract_and_reply_expected(tmp_path, monkeypatch):
     from plugins.platforms.whatsapp.adapter import WhatsAppAdapter
+    monkeypatch.setenv('HERMES_HOME', str(tmp_path))
     monkeypatch.setenv('WHATSAPP_ALLOWED_USERS', '15551234567')
+    monkeypatch.setattr(GatewayRunner, '_VOICE_MODE_PATH', tmp_path / 'gateway_voice_mode.json')
     runner = GatewayRunner(GatewayConfig(sessions_dir=tmp_path / 'sessions'))
     adapter = WhatsAppAdapter(PlatformConfig(enabled=True, extra={'session_path': str(tmp_path / 'wa')}))
     runner.adapters = {Platform.WHATSAPP: adapter}
     authority = await initialize_session_authority(runner, profile_id='default', instance_id='codec')
     try:
         event = MessageEvent(text='chatter', source=adapter.build_source(chat_id=CHAT, user_id=CHAT, chat_type='group'),
-                             message_id='c1')
+                             message_id='c1', sender_open_id='ou_sender',
+                             mentioned_user_ids=['ou_bot'], topic_root_message_id='om_root')
+        restored = restore_native(snapshot_native(runner, event))
+        assert restored.sender_open_id == 'ou_sender'
+        assert restored.mentioned_user_ids == ['ou_bot']
+        assert restored.topic_root_message_id == 'om_root'
+        from gateway.reply_policy import reply_policy_context
+        assert reply_policy_context(restored)['sender_open_id'] == 'ou_sender'
+        assert 'sender_open_id' not in snapshot_native(runner, replace(event, sender_open_id=None))['native_text_v1']['event']
         # Slack-style silence policy survives the envelope (N80); unknown stays absent (old digest).
         assert 'reply_expected' not in snapshot_native(runner, event)['native_text_v1']['event']
         for value in (False, True):

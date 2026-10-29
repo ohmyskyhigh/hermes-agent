@@ -57,6 +57,7 @@ def checkout(tmp_path, monkeypatch):
     origin = tmp_path / "origin"
     origin.mkdir()
     _git(origin, "init", "-q", "-b", "main")
+    _git(origin, "config", "core.autocrlf", "false")
     _git(origin, "config", "user.email", "t@example.invalid")
     _git(origin, "config", "user.name", "t")
     files = {"utils.py": "OLD = 1\n", "other.py": "a = 1\n", "gone.py": "x = 1\n", "cut.py": "c = 1\n",
@@ -78,6 +79,7 @@ def checkout(tmp_path, monkeypatch):
     _git(origin, "commit", "-qm", "B")
     root = tmp_path / "install"
     _git(tmp_path, "clone", "-q", str(origin), str(root))
+    _git(root, "config", "core.autocrlf", "false")
     _git(root, "reset", "-q", "--hard", "HEAD~1")
     monkeypatch.setattr("hermes_cli.main.PROJECT_ROOT", root)
     return root, _git(root, "rev-parse", "HEAD"), _git(root, "rev-parse", "origin/main")
@@ -150,6 +152,7 @@ def test_killed_pull_is_restored_on_next_launch_and_update_reruns(checkout, monk
     assert _git(root, "rev-parse", "HEAD") == b and not marker.exists()
 
 
+@pytest.mark.platforms("posix")
 def test_restore_runs_the_installers_store_git_when_path_has_none(checkout, monkeypatch, tmp_path):
     """Windows installs whose only git is the copy install.ps1 staged in PM's store: the launch-time
     restore must find it like the updater does, release the dead git's index.lock and put the tree back
@@ -277,6 +280,7 @@ def test_concurrent_launches_take_turns_and_all_rerun_from_the_restored_tree(tmp
     origin = tmp_path / "origin"
     origin.mkdir()
     _git(origin, "init", "-q", "-b", "main")
+    _git(origin, "config", "core.autocrlf", "false")
     _git(origin, "config", "user.email", "t@example.invalid")
     _git(origin, "config", "user.name", "t")
     names = [f"m{i}.py" for i in range(300)]  # enough work that the launches overlap
@@ -289,6 +293,7 @@ def test_concurrent_launches_take_turns_and_all_rerun_from_the_restored_tree(tmp
     _git(origin, "commit", "-qam", "B")
     root = tmp_path / "install"
     _git(tmp_path, "clone", "-q", str(origin), str(root))
+    _git(root, "config", "core.autocrlf", "false")
     _git(root, "reset", "-q", "--hard", "HEAD~1")
     pre, target = _git(root, "rev-parse", "HEAD"), _git(root, "rev-parse", "origin/main")
     for i, name in enumerate(names[:150]):  # git got halfway
@@ -598,7 +603,9 @@ def test_an_empty_head_answer_keeps_the_marker(tmp_path, monkeypatch, capsys):
             return subprocess.CompletedProcess(argv, 0, "", "")
         return real_run(argv, *args, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", silent)
+    from hermes_cli import update_custody
+
+    monkeypatch.setattr(update_custody, "run", lambda argv, inherit_lock=False, **kw: silent(argv, **kw))
     assert er.restore_interrupted_pull(root) is False
     assert marker.exists(), "an empty `rev-parse HEAD` deleted the marker over a torn tree"
     assert "Could not read HEAD" in capsys.readouterr().err

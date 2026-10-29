@@ -17,6 +17,7 @@ import textwrap
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 from hermes_cli.update_lock import UpdateLock, marker_mutex_path, process_create_time
@@ -34,6 +35,25 @@ def _script(tmp_path: Path, code: str) -> Path:
 def _python(tmp_path: Path, code: str, *args, **kwargs) -> subprocess.Popen:
     return subprocess.Popen([sys.executable, str(_script(tmp_path, code)), str(REPO_ROOT), *map(str, args)],
                             stdin=subprocess.DEVNULL, **kwargs)
+
+
+def _kill_holder_tree(proc: subprocess.Popen) -> None:
+    # On Windows a venv launcher can outlive or leave behind its actual Python
+    # child. Reap both before asserting that the kernel checkout lock is free.
+    children = []
+    try:
+        children = psutil.Process(proc.pid).children(recursive=True)
+    except psutil.NoSuchProcess:
+        pass
+    for child in reversed(children):
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    proc.kill()
+    proc.wait(timeout=10)
+    _, alive = psutil.wait_procs(children, timeout=10)
+    assert not alive, f"lock-holder children survived: {alive}"
 
 
 def _wait_for(path: Path, proc: subprocess.Popen | None = None, timeout: float = 30.0) -> str:
@@ -411,8 +431,7 @@ def test_a_completion_from_another_home_never_builds_an_owned_checkout(tmp_path,
             source_completion.complete_source_checkout(root, desktop=False, assume_yes=True)
         assert entered == [], "the completion body ran while another update owned the checkout"
     finally:
-        holder.kill()
-        holder.wait()
+        _kill_holder_tree(holder)
 
 
 def test_a_live_legacy_profile_claim_is_honored(tmp_path, monkeypatch):
@@ -469,8 +488,7 @@ def test_dead_marker_is_kept_and_reported_held_while_the_checkout_lock_is_held(t
         assert marker.exists(), "a reader deleted the dead marker while the update tree still held the checkout"
         assert verdict is not None and verdict.held, f"expected the hand-off scripts' 'held', got {verdict!r}"
     finally:
-        holder.kill()
-        holder.wait()
+        _kill_holder_tree(holder)
     assert update_lock.read_live_update(path=marker, install_root=install) is None
     assert not marker.exists(), "with the tree gone the dead marker is reclaimed"
 
@@ -505,8 +523,7 @@ def test_a_claimer_never_reclaims_a_dead_marker_while_the_checkout_lock_is_held(
         assert launch.holder is not None and launch.holder.held and launch.holder.pid == 0
         assert marker.read_bytes() == dead_bytes
     finally:
-        holder.kill()
-        holder.wait()
+        _kill_holder_tree(holder)
     with UpdateLock(path=marker, install_root=install, checkout_first=False) as launch:
         assert launch.acquired, "with the tree gone the dead marker is reclaimed and claimed"
     assert not marker.exists()

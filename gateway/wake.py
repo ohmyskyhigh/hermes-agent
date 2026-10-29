@@ -106,13 +106,18 @@ async def admit_internal_event(adapter: Any, event: Any) -> None:
 
 
 async def deliver_wake(adapter: Any, *, text: str, session_id: str = "", source: Any = None,
-                       notification_category: str = "result", profile: Optional[str] = None) -> None:
+                       notification_category: str = "result", profile: Optional[str] = None,
+                       topic_campaign_key: Optional[str] = None, topic_campaign_epoch: int = 0) -> None:
     """Deliver a wake turn to the session behind ``adapter``. ``session_id`` is the RAW session id
     (``X-Hermes-Session-Id`` / state.db key) — required for non-push adapters. ``source`` is the
     ``SessionSource`` for the synthetic event — required for push-capable adapters. ``profile``
     names the served profile that canonically owns a non-push destination; a non-default value is
     delivered in-process under the caller's profile scope (see ``_self_post_chat_completion``).
     Raises on failure so the caller can rewind/retry."""
+    from gateway.topic_campaign_binding import campaign_metadata
+    binding = campaign_metadata({"topic_campaign_key": topic_campaign_key}) if topic_campaign_key is not None else {}
+    if binding:
+        binding.update(campaign_metadata({**binding, 'topic_campaign_epoch': topic_campaign_epoch}))
     if adapter_supports_push(adapter):
         if source is None:
             raise ValueError("deliver_wake: push-capable adapter requires a SessionSource")
@@ -123,14 +128,17 @@ async def deliver_wake(adapter: Any, *, text: str, session_id: str = "", source:
             from hermes_state_runtime import RuntimeStoreError
             category = {"notification_category": notification_category} if notification_category != "result" else {}
             try:
-                if await admit_route_wake(runner, adapter, source, text, "kanban-wake", category):
+                if await admit_route_wake(runner, adapter, source, text, "campaign-wake" if binding else "kanban-wake", category | binding):
                     return  # committed to the session FIFO: never interrupts the admitted turn
             except RuntimeStoreError as exc:
                 raise WakeNotAccepted(str(exc), reason=exc.reason) from exc
         synth_event = MessageEvent(text=text, message_type=MessageType.TEXT, source=source, internal=True,
-                                   metadata={"notification_category": notification_category})
+                                   metadata={"notification_category": notification_category, **binding})
+        synth_event._campaign_wake_trusted = bool(binding)
         await admit_internal_event(adapter, synth_event)
         return
+    if binding:
+        raise ValueError("campaign wake requires a push-capable topic adapter")
     if not session_id:
         raise ValueError("deliver_wake: non-push adapter (supports_async_delivery=False) "
                          "requires the raw session id to self-post the wake turn")

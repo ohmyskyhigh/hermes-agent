@@ -325,6 +325,7 @@ def _producer_reason(*, gateway_owed=False, units=(), down=(), stale=()):
     # A serve-only line next to a raw-exception line: a gateway may still be owed.
     ([_producer_reason(units=["hermes-dashboard"]), "RuntimeError: boom"], True),
 ])
+@pytest.mark.platforms("posix")
 def test_desktop_handoffs_add_the_gateway_hint_only_when_gateways_are_blamed(capsys, reasons, hinted):
     """#141071: both Desktop hand-offs keyed the "Run hermes gateway restart" hint on the step id alone.
     Now the hint drops only when every gateway_restart reason the producer prints is serve/dashboard-only.

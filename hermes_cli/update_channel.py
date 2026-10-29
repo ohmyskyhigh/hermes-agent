@@ -372,6 +372,17 @@ def stale_channel_records(config: Optional[dict]) -> list[tuple[str, dict, str]]
                 stale.append((sha16, record, "replaced"))
                 continue
 
+        # PM generations use facts.json instead of the retired install.json.
+        # Validate the committed environment before accepting the modern record.
+        if recorded_path is not None:
+            from pm.environments import committed_venv
+
+            try:
+                if committed_venv(Path(recorded_path)) is not None:
+                    continue
+            except (OSError, RuntimeError, ValueError):
+                pass
+
         # Cross-check against the live install-state records: a channel
         # record whose sha16 has no installs/<sha16>/install.json was
         # either hand-written or its install never booted post-record.

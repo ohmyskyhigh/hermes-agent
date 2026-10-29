@@ -1603,6 +1603,9 @@ class GatewayStartupMixin:
         self._spawn_reconnect_watcher()
         for method in self._POST_RECONNECT_WATCHERS:
             self._spawn_supervised(getattr(self, method), method[1:])
+        if getattr(self.config, "topic_campaigns", {}).get("enabled") is True:
+            from gateway.topic_campaign_service import campaign_watcher
+            self._spawn_supervised(lambda: campaign_watcher(self), "topic_campaign_watcher")
         from gateway.runtime_downgrade_exit import runtime_downgrade_watcher
         self._spawn_supervised(lambda: runtime_downgrade_watcher(self), "runtime_downgrade_watcher")
         # Scale-to-zero watcher ONLY when opted in, messaging is relay-only/absent, and a wakeUrl exists.

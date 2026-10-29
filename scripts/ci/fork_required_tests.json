@@ -1,0 +1,298 @@
+{
+  "schema": 1,
+  "purpose": "PR4 local customization merge gate; not authorization to deploy or integrate upstream",
+  "common_test_files": [
+    "tests/agent/test_tool_executor_checkpoint_paths.py",
+    "tests/gateway/test_bot_reply_policy_terminal.py",
+    "tests/gateway/test_campaign_native_recipient_routing.py",
+    "tests/gateway/test_campaign_processing_marker.py",
+    "tests/gateway/test_feishu.py",
+    "tests/gateway/test_feishu_attachment_auth.py",
+    "tests/gateway/test_feishu_attachment_ingress.py",
+    "tests/gateway/test_feishu_attachment_store.py",
+    "tests/gateway/test_feishu_attachment_transport_chain.py",
+    "tests/gateway/test_feishu_media_thread_routing.py",
+    "tests/gateway/test_feishu_resource_download.py",
+    "tests/gateway/test_feishu_sdk_boundary.py",
+    "tests/gateway/test_local_receipt_directory_alias.py",
+    "tests/gateway/test_native_admission_metadata.py",
+    "tests/gateway/test_native_attachment_refs.py",
+    "tests/gateway/test_post_stream_media_delivery.py",
+    "tests/gateway/test_reply_policy.py",
+    "tests/gateway/test_telegram_thread_fallback.py",
+    "tests/gateway/test_topic_campaign_ingress.py",
+    "tests/gateway/test_topic_campaign_service.py",
+    "tests/gateway/test_topic_campaign_store.py",
+    "tests/hermes_cli/test_backup.py",
+    "tests/hermes_cli/test_backup_all_profiles.py",
+    "tests/hermes_cli/test_backup_cron_prompts_lock.py",
+    "tests/hermes_cli/test_backup_failed_members.py",
+    "tests/hermes_cli/test_backup_import_deleted_holder.py",
+    "tests/hermes_cli/test_backup_path_errors.py",
+    "tests/hermes_cli/test_backup_preflight.py",
+    "tests/hermes_cli/test_backup_retention_roundtrip.py",
+    "tests/hermes_cli/test_backup_stability.py",
+    "tests/hermes_cli/test_backup_zip_serialization.py",
+    "tests/hermes_cli/test_campaign.py",
+    "tests/hermes_cli/test_cmd_update.py",
+    "tests/hermes_cli/test_config_migration_45_connections.py",
+    "tests/hermes_cli/test_config_migration_48_sandbox_image.py",
+    "tests/hermes_cli/test_config_migration_49_vercel_image.py",
+    "tests/hermes_cli/test_config_migration_50_tirith.py",
+    "tests/hermes_cli/test_config_migration_52_browser.py",
+    "tests/hermes_cli/test_config_migration_nested_guards.py",
+    "tests/hermes_cli/test_config_retired_key_migrations.py",
+    "tests/hermes_cli/test_config_unversioned_migration.py",
+    "tests/hermes_cli/test_install_cua_driver.py",
+    "tests/hermes_cli/test_update_apply_shallow_count.py",
+    "tests/hermes_cli/test_update_autostash.py",
+    "tests/hermes_cli/test_update_autostash_orphan_warning.py",
+    "tests/hermes_cli/test_update_behind_count_recovery.py",
+    "tests/hermes_cli/test_update_bootstrap_cache_refresh.py",
+    "tests/hermes_cli/test_update_channel.py",
+    "tests/hermes_cli/test_update_channel_pm_record.py",
+    "tests/hermes_cli/test_update_channel_release_hold.py",
+    "tests/hermes_cli/test_update_channel_stable.py",
+    "tests/hermes_cli/test_update_cold_start_gateway_liveness.py",
+    "tests/hermes_cli/test_update_command.py",
+    "tests/hermes_cli/test_update_commit_obligations.py",
+    "tests/hermes_cli/test_update_completion_lease.py",
+    "tests/hermes_cli/test_update_completion_process.py",
+    "tests/hermes_cli/test_update_completion_routing.py",
+    "tests/hermes_cli/test_update_concurrent_quarantine.py",
+    "tests/hermes_cli/test_update_config_clears_custom_fields.py",
+    "tests/hermes_cli/test_update_config_migration_on_current.py",
+    "tests/hermes_cli/test_update_contract.py",
+    "tests/hermes_cli/test_update_cron_deadlock_guard.py",
+    "tests/hermes_cli/test_update_cua_pm.py",
+    "tests/hermes_cli/test_update_custody.py",
+    "tests/hermes_cli/test_update_detached_rescue_ref.py",
+    "tests/hermes_cli/test_update_diverged_rescue_ref.py",
+    "tests/hermes_cli/test_update_downgrade_guard.py",
+    "tests/hermes_cli/test_update_downgrade_guard_named_profile.py",
+    "tests/hermes_cli/test_update_eol_churn.py",
+    "tests/hermes_cli/test_update_existing_branch_baseline.py",
+    "tests/hermes_cli/test_update_exit_code_publication.py",
+    "tests/hermes_cli/test_update_external_checkout.py",
+    "tests/hermes_cli/test_update_external_profile_reconciliation.py",
+    "tests/hermes_cli/test_update_fetch_failure_classifier.py",
+    "tests/hermes_cli/test_update_fetch_timeout.py",
+    "tests/hermes_cli/test_update_finish.py",
+    "tests/hermes_cli/test_update_finish_stamp.py",
+    "tests/hermes_cli/test_update_flat_install_state_gitignore.py",
+    "tests/hermes_cli/test_update_fleet_check_fail_closed.py",
+    "tests/hermes_cli/test_update_fleet_checkout_build_stamp.py",
+    "tests/hermes_cli/test_update_fleet_completion.py",
+    "tests/hermes_cli/test_update_fleet_home_scope.py",
+    "tests/hermes_cli/test_update_fleet_incomplete_warning.py",
+    "tests/hermes_cli/test_update_fleet_probe_resume_token.py",
+    "tests/hermes_cli/test_update_fleet_restart_pending.py",
+    "tests/hermes_cli/test_update_fleet_restart_timeout.py",
+    "tests/hermes_cli/test_update_fleet_snapshot_settle.py",
+    "tests/hermes_cli/test_update_fork_sync_identity.py",
+    "tests/hermes_cli/test_update_gateway_launcher_refresh.py",
+    "tests/hermes_cli/test_update_gateway_restart_aborted.py",
+    "tests/hermes_cli/test_update_gateway_restart_fallback.py",
+    "tests/hermes_cli/test_update_hangup_protection.py",
+    "tests/hermes_cli/test_update_head_moved_gate.py",
+    "tests/hermes_cli/test_update_host_obligation.py",
+    "tests/hermes_cli/test_update_import_guard.py",
+    "tests/hermes_cli/test_update_interrupted_pull.py",
+    "tests/hermes_cli/test_update_inventory.py",
+    "tests/hermes_cli/test_update_launch_completion.py",
+    "tests/hermes_cli/test_update_launchd_fleet_restart.py",
+    "tests/hermes_cli/test_update_launchd_restart_verification.py",
+    "tests/hermes_cli/test_update_launchd_unloaded_gateway.py",
+    "tests/hermes_cli/test_update_list_venv_holders.py",
+    "tests/hermes_cli/test_update_live_output.py",
+    "tests/hermes_cli/test_update_lock.py",
+    "tests/hermes_cli/test_update_lock_fd_provenance.py",
+    "tests/hermes_cli/test_update_lock_protocol.py",
+    "tests/hermes_cli/test_update_marker_corpus.py",
+    "tests/hermes_cli/test_update_messages.py",
+    "tests/hermes_cli/test_update_missing_configured_deps.py",
+    "tests/hermes_cli/test_update_modified_notice.py",
+    "tests/hermes_cli/test_update_narrow_clone_compare_ref.py",
+    "tests/hermes_cli/test_update_narrow_clone_refspec.py",
+    "tests/hermes_cli/test_update_no_gateway_restart.py",
+    "tests/hermes_cli/test_update_obligation_identity.py",
+    "tests/hermes_cli/test_update_owning_install.py",
+    "tests/hermes_cli/test_update_parked_branch_guard.py",
+    "tests/hermes_cli/test_update_pause_boundaries.py",
+    "tests/hermes_cli/test_update_pause_checkout_moves.py",
+    "tests/hermes_cli/test_update_pause_moved_head_gate.py",
+    "tests/hermes_cli/test_update_pause_record.py",
+    "tests/hermes_cli/test_update_pause_recover_backoff.py",
+    "tests/hermes_cli/test_update_pause_recovery_stdout.py",
+    "tests/hermes_cli/test_update_pause_service_rollback.py",
+    "tests/hermes_cli/test_update_pause_step_interruptions.py",
+    "tests/hermes_cli/test_update_pause_stop_evidence.py",
+    "tests/hermes_cli/test_update_pause_unmapped_home_proof.py",
+    "tests/hermes_cli/test_update_pause_unmapped_identity.py",
+    "tests/hermes_cli/test_update_pm_git.py",
+    "tests/hermes_cli/test_update_posix_pause.py",
+    "tests/hermes_cli/test_update_post_commit_followups.py",
+    "tests/hermes_cli/test_update_post_commit_safety.py",
+    "tests/hermes_cli/test_update_post_pull_syntax_guard.py",
+    "tests/hermes_cli/test_update_products.py",
+    "tests/hermes_cli/test_update_receipt.py",
+    "tests/hermes_cli/test_update_receipt_durability.py",
+    "tests/hermes_cli/test_update_receipt_endpoint.py",
+    "tests/hermes_cli/test_update_receipt_owe_followup.py",
+    "tests/hermes_cli/test_update_receipt_pm_embed.py",
+    "tests/hermes_cli/test_update_receipt_profile_store.py",
+    "tests/hermes_cli/test_update_receipt_run_record.py",
+    "tests/hermes_cli/test_update_receipt_scope.py",
+    "tests/hermes_cli/test_update_receipt_truthfulness.py",
+    "tests/hermes_cli/test_update_recovery_closure.py",
+    "tests/hermes_cli/test_update_recovery_custody.py",
+    "tests/hermes_cli/test_update_restart_recovery.py",
+    "tests/hermes_cli/test_update_restore_authority.py",
+    "tests/hermes_cli/test_update_scoped_reconciliation.py",
+    "tests/hermes_cli/test_update_secret_import_lock.py",
+    "tests/hermes_cli/test_update_serve_generation_recovery.py",
+    "tests/hermes_cli/test_update_shallow_heal.py",
+    "tests/hermes_cli/test_update_shim_self_lock.py",
+    "tests/hermes_cli/test_update_sqlite_remediation.py",
+    "tests/hermes_cli/test_update_ssl_cert_file.py",
+    "tests/hermes_cli/test_update_stage.py",
+    "tests/hermes_cli/test_update_stale_dashboard.py",
+    "tests/hermes_cli/test_update_stale_gateway_yield.py",
+    "tests/hermes_cli/test_update_state_autorestore.py",
+    "tests/hermes_cli/test_update_system_dashboard_unit.py",
+    "tests/hermes_cli/test_update_target_identity.py",
+    "tests/hermes_cli/test_update_unit_client_budget.py",
+    "tests/hermes_cli/test_update_upstream_prompt_noninteractive.py",
+    "tests/hermes_cli/test_update_venv_holder_retirement.py",
+    "tests/hermes_cli/test_update_version_report.py",
+    "tests/hermes_cli/test_update_wedged_gateway.py",
+    "tests/hermes_cli/test_update_zip_completion.py",
+    "tests/hermes_cli/test_update_zip_fallback_guards.py",
+    "tests/hermes_cli/test_update_zip_release_preserve.py",
+    "tests/hermes_cli/test_update_zip_symlink_reject.py",
+    "tests/hermes_cli/test_update_zip_sync_failure.py",
+    "tests/hermes_cli/test_update_zip_two_phase.py",
+    "tests/scripts/ci/test_fork_validation.py",
+    "tests/tools/test_feishu_attachment_tool.py",
+    "tests/scripts/ci/test_fork_native_javascript.py"
+  ],
+  "platform_test_files": {
+    "linux": [],
+    "windows": [
+      "tests/hermes_cli/test_gateway_windows.py",
+      "tests/hermes_cli/test_gateway_windows_lifecycle_probe.py",
+      "tests/hermes_cli/test_gateway_windows_registration_probe.py",
+      "tests/hermes_cli/test_gateway_windows_task_home.py",
+      "tests/hermes_cli/test_update_lock_windows_live.py",
+      "tests/hermes_cli/test_update_pause_debt_windows_live.py",
+      "tests/hermes_cli/test_update_windows_cross_install_gateway.py",
+      "tests/hermes_cli/test_update_windows_home_acl.py"
+    ],
+    "macos": []
+  },
+  "skip_policy": [
+    "Off-host platforms markers are not coverage; the matching Linux/Windows/macOS job must execute each host-specific case.",
+    "Windows file-symlink privilege skip requires the corresponding symlink test to pass on Linux; no UAC bypass.",
+    "Any other skip requires explicit review; skipped tests are never counted as executed success.",
+    "Windows installer acceptance uses strict_acceptance=1, requires crash-cell evidence, and may not be replaced by unit tests."
+  ],
+  "required_categories": [
+    "canonical_static_checks",
+    "custom_behavior",
+    "configuration_migrations",
+    "fork_update_and_channel_policy",
+    "backup_restore_regression",
+    "native_windows_install_update",
+    "cua_driver_interface",
+    "javascript_dependency_regression"
+  ],
+  "native_javascript": {
+    "windows": {
+      "desktop": {
+        "electron/windows-remote-lifecycle.test.ts": [
+          "Windows spawn waits on <marker>.lock",
+          "Windows platform probe executes in real PowerShell",
+          "Windows spawn streams its Unicode request through a real cmd.exe"
+        ],
+        "electron/update-marker.test.ts": [
+          "Windows reads a SYSTEM process creation time"
+        ],
+        "scripts/side-by-side.windows.test.mjs": [
+          "native Windows SDK packs distinct flavor identities and ordered canary updates"
+        ],
+        "scripts/payload-sign-cache.test.mjs": [
+          "native verification binds cached bytes to the publisher and timestamp",
+          "catalog trust cannot mask the embedded signature"
+        ],
+        "scripts/commit-bundles.windows.test.mjs": [
+          "commit assembly preserves per-arch packages and rejects Store bundles"
+        ],
+        "electron/updater/checkout-legacy.test.ts": [
+          "runs a PM .cmd source check with quoted paths and refuses a missing launcher"
+        ],
+        "scripts/windows-bundle-tools.test.mjs": [
+          "a cold payload signer provisions executable SDK tools and reuses them warm"
+        ],
+        "electron/updater/relaunch-waiter-spawn.windows-live.test.ts": [
+          "a waiter that exits before its handshake reports its own exit code",
+          "a real hidden PowerShell waiter survives parent exit unless cancelled and leaves no stage dir (cancel=false)",
+          "a real hidden PowerShell waiter survives parent exit unless cancelled and leaves no stage dir (cancel=true)"
+        ],
+        "scripts/after-pack-digests.test.mjs": [
+          "afterPack records actual sanitized payload bytes",
+          "afterPack refuses missing or corrupt facts only for a present payload"
+        ],
+        "electron/updater/relaunch-waiter.windows-live.test.ts": [
+          "activates only after parent exit and package change (false)",
+          "activates only after parent exit and package change (true)",
+          "tags every line of a multi-line script error with its attempt"
+        ],
+        "electron/update-prerequisites.test.ts": [
+          "a .cmd launcher path with cmd metacharacters is refused, not executed"
+        ],
+        "electron/local-gateway-python-native.test.ts": [
+          "native pipe tickets reuse one helper and revalidate every owner"
+        ],
+        "scripts/probe-prepared-native.test.mjs": [
+          "the Electron PTY probe exits after its shell despite ConPTY workers"
+        ]
+      },
+      "root": {
+        "bundle-smoke-metadata.test.mjs": [
+          "PowerShell admits only the pinned package and native slice",
+          "channel smoke binds the complete admitted request, not a commit-build identity or display version"
+        ]
+      }
+    },
+    "macos": {
+      "desktop": {
+        "scripts/mac-sign-cache.test.mjs": [
+          "native verification accepts only a Developer ID, timestamped, hardened signature"
+        ],
+        "scripts/macos-sysroot-native.test.mjs": [
+          "builds both universal helpers under every SDK selection rung"
+        ]
+      },
+      "root": {
+        "bundle-smoke-metadata.test.mjs": [
+          "fresh-install provenance admits tagless commit stamps without relaxing update acceptance"
+        ]
+      }
+    }
+  },
+  "windows_install_update_files": [
+    "tests/e2e/core/windows_update/test_crash_cells.py",
+    "tests/e2e/core/windows_update/test_damaged_checkout.py",
+    "tests/e2e/core/windows_update/test_elevated_gateway_attach.py",
+    "tests/e2e/core/windows_update/test_fresh_install_update.py",
+    "tests/e2e/core/windows_update/test_gateway_across_update.py",
+    "tests/e2e/core/windows_update/test_git_and_holders.py",
+    "tests/e2e/core/windows_update/test_interpreter.py",
+    "tests/e2e/core/windows_update/test_paths_and_acls.py",
+    "tests/e2e/core/windows_update/test_pause_custody.py",
+    "tests/e2e/core/windows_update/test_pause_durable.py",
+    "tests/e2e/core/windows_update/test_update_lock_tree.py",
+    "tests/e2e/core/windows_update/test_update_spares_other_installs.py",
+    "tests/e2e/core/windows_update/test_upgrade_over_old_gateway.py"
+  ]
+}

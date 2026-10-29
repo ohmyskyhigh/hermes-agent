@@ -77,7 +77,7 @@ def test_scope_and_existing_human_courtesy_controls(policy, case):
     if case in {"human_unresolved", "bot_unresolved"}:
         ctx.update(sender_id="cli_not_an_open_id", sender_open_id=None)
         if case == "human_unresolved":
-            expected = {"action": "defer", "reason": "recipient_unresolved"}
+            expected = {"action": "send", "mentions": [], "reason": "recipient_unresolved_fail_open"}
     if case == "media":
         ctx.update(text="收到", has_media=True)
     if case == "courtesy":

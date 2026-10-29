@@ -182,6 +182,7 @@ def test_recovery_keeps_separate_processes_separate(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, reason="root ignores directory permissions")
+@pytest.mark.platforms("posix")
 def test_unwritable_host_state_dir_still_arms_the_obligation(two_profiles, no_live_fleet, monkeypatch, tmp_path):
     """An unwritable host state dir must never silently disarm the update→restart obligation.
 
@@ -204,6 +205,7 @@ def test_unwritable_host_state_dir_still_arms_the_obligation(two_profiles, no_li
 
 
 @pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, reason="root ignores directory permissions")
+@pytest.mark.platforms("posix")
 def test_unwritable_host_state_dir_never_hides_the_debt_from_another_profile(two_profiles, no_live_fleet, monkeypatch, tmp_path):
     """With a second profile on the install, the arming profile's per-home marker is a debt the
     other profile cannot see: it would read "no restart owed" for a tree about to move. Every
@@ -306,6 +308,7 @@ def test_every_host_record_write_makes_its_rename_durable(tmp_path, monkeypatch)
 
 @pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, reason="root ignores directory permissions")
 @pytest.mark.parametrize("unreadable", ["roster", "profile"])
+@pytest.mark.platforms("posix")
 def test_an_unreadable_profile_roster_never_admits_a_private_restart_marker(
         two_profiles, no_live_fleet, monkeypatch, tmp_path, unreadable):
     """Host record unwritable AND the profile roster (or one profile's identity) unreadable: that is

@@ -202,6 +202,7 @@ def test_owed_restart_rearms_a_settled_obligation_and_a_later_run_keeps_owing_it
     assert fleet._fleet_restart_obligation_armed()
 
 
+@pytest.mark.platforms("posix")
 def test_followup_line_is_the_one_both_desktop_handoffs_parse(tmp_path, monkeypatch, capsys):
     """The hand-offs read owed follow-ups from this printed line (review regression 1): pin the
     producer against the exact parsers in posix.sh (sed) and windows.ps1 (.NET regex)."""

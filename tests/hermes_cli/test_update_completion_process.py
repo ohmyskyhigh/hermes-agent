@@ -110,6 +110,10 @@ def transition(tmp_path):
                  package / "source_completion.py")
     shutil.copy2(Path(update_completion.__file__).with_name("update_lock.py"),
                  package / "update_lock.py")
+    # Windows lock joiners prove the live owner's identity through this stdlib
+    # probe. The synthetic NEW tree must include the lock's dependency closure.
+    shutil.copy2(Path(update_completion.__file__).with_name("_early_recovery.py"),
+                 package / "_early_recovery.py")
     shutil.copy2(Path(update_completion.__file__).with_name("_subprocess_compat.py"),
                  package / "_subprocess_compat.py")
     (package / "gitlock.py").write_text(
@@ -234,7 +238,7 @@ def test_old_process_new_git_tree_completes_in_fresh_python(transition, tmp_path
     assert response["exit_code"] == 0
     assert response["receipt"]["update_id"] == request["receipt"]["update_id"]
     assert response["windows_resume"]["resume_needed"] is False
-    assert not (Path(request["home"]) / "completion-pending").exists()
+    assert not (Path(request["home"]) / "completion-pending").exists(), response
     events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
     by_name = {event["name"]: event for event in events}
     assert by_name["activate"]["pid"] == by_name["build"]["pid"]
@@ -261,6 +265,14 @@ def _run_cmd_update(monkeypatch, request, capsys):
     monkeypatch.setattr(main, "_update_preflight_handled", lambda args: False)
     monkeypatch.setattr(main, "_install_hangup_protection", lambda **kw: None)
     monkeypatch.setattr(main, "_finalize_update_output", lambda state: None)
+
+    def resume_fixture_gateways(token):
+        # This fixture's profile/PID is synthetic, like the NEW tree's resume
+        # adapter above. Native service readiness has its own real-process tests.
+        assert token["profiles"] == {"work": [123]}
+        token["resume_needed"] = False
+
+    monkeypatch.setattr(main, "_resume_windows_gateways_after_update", resume_fixture_gateways)
 
     def complete(args, gateway_mode):
         update_receipt.begin_update_receipt()
