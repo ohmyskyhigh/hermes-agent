@@ -111,3 +111,33 @@ async def test_authority_route_runs_a_wake_receipted_before_drain_once_after_res
         what="the wake to run",
     )
     assert len(wake_runs(executed)) == 1  # ran once, on whichever gateway claimed it
+
+
+@pytest.mark.asyncio
+async def test_claimed_wake_runs_when_drain_begins_before_handler_dispatch(monkeypatch):
+    """The claim's DB guard accepted this turn; a later drain must not complete it as a notice."""
+    from gateway.platforms.event import MessageEvent
+    from gateway.wake import deliver_wake
+
+    executed = []
+    runner, adapter, authority, source = await authority_route(monkeypatch, "owner", executed)
+    await adapter.handle_message(MessageEvent(text="A", source=source, message_id="A"))
+    await async_wait_until(
+        lambda: admissions(runner, authority, source) == [("messaging", "terminal", "completed")],
+        what="the human turn to settle",
+    )
+    execute_claimed = authority._execute_claimed
+
+    async def drain_after_claim(ref, live, row):
+        if row["payload"]["text"] == WAKE:
+            assert row["status"] == "started"
+            runner._draining = True
+        return await execute_claimed(ref, live, row)
+
+    monkeypatch.setattr(authority, "_execute_claimed", drain_after_claim)
+    await asyncio.wait_for(deliver_wake(adapter, text=WAKE, source=source), 10)
+    await async_wait_until(
+        lambda: admissions(runner, authority, source)[-1] == ("automation", "terminal", "completed"),
+        what="the claimed wake to finish",
+    )
+    assert wake_runs(executed) == ["owner"]

@@ -921,7 +921,11 @@
     "tests/tui_gateway/test_container_backend_workdir.py",
     "tests/hermes_platform/host/test_windows_files.py",
     "tests/tui_gateway/test_hosted_room_attachment_routes.py",
-    "tests/tui_gateway/test_hosted_room_driver_runtime.py"
+    "tests/tui_gateway/test_hosted_room_driver_runtime.py",
+    "tests/gateway/test_api_admission_queued_on_drain.py",
+    "tests/gateway/test_busy_wake_admission.py",
+    "tests/gateway/test_session_authority.py",
+    "tests/gateway/test_local_producer_admission.py"
   ],
   "platform_test_files": {
     "linux": [],
