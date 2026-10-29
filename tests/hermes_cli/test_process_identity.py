@@ -138,7 +138,7 @@ def test_register_self_writes_and_prunes_dead(tmp_path):
 def test_register_self_survives_non_utf8_argv(tmp_path):
     ledger = tmp_path / "spawn-ledger.json"
     fake = _fake_psutil({999: 50.0})
-    bad_argv = ["hermes", "serve", os.fsdecode(b"/tmp/project-\xff")]  # surrogate-escaped path
+    bad_argv = ["hermes", "serve", b"/tmp/project-\xff".decode("utf-8", errors="surrogateescape")]  # surrogate-escaped path
     with patch.dict(sys.modules, {"psutil": fake}), \
          patch.object(pi, "_ledger_path", return_value=ledger), \
          patch.object(pi.os, "getpid", return_value=999), \

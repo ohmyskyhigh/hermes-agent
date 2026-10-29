@@ -873,7 +873,8 @@
     "tests/test_project_metadata.py",
     "tests/test_scratch_dir.py",
     "tests/test_scratch_registered_clock_step.py",
-    "tests/test_utils_unlink_files_older_than.py"
+    "tests/test_utils_unlink_files_older_than.py",
+    "tests/tools/test_spill_safety.py"
   ],
   "platform_test_files": {
     "linux": [],

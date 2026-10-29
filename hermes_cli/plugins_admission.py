@@ -79,5 +79,5 @@ def admit_plugin_set_change(
         from pm.workspace import ResolutionConflict
 
         if isinstance(exc, ResolutionConflict):
-            raise DependencyConflict(exc.cause, plugin=plugin) from exc
+            raise DependencyConflict(exc.cause, plugin=plugin or ", ".join(sorted(candidate_enabled))) from exc
         raise AdmissionRefused(str(exc)) from exc

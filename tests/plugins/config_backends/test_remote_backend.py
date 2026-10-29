@@ -498,6 +498,7 @@ _BACKEND_FLIP_SOURCE = {"command": {"enabled": True, "override_existing": True,
                                     "command": "printf 'HERMES_CONFIG_BACKEND=file\\n'"}}
 
 
+@pytest.mark.platforms("posix")  # the command secret source requires /bin/sh
 def test_secret_source_cannot_switch_remote_mode_off_at_boot(plane, monkeypatch):
     """D32 through the REAL startup path and a real command source: a source that writes
     HERMES_CONFIG_BACKEND=file must not disarm remote mode (and with it the protected-name check)
@@ -742,6 +743,7 @@ def test_dashboard_unexpected_config_failure_stays_opaque(plane):
 
 # --- review round 2 regressions -----------------------------------------------------------
 
+@pytest.mark.platforms("posix")  # the command secret source requires /bin/sh
 def test_refused_source_plane_url_is_never_visible_to_a_concurrent_request(plane, monkeypatch):
     """D32 credential boundary: a real command source supplies HERMES_CONFIG_REMOTE_URL pointing
     at another plane. A poll scheduled right after the sources ran (before the refusal) must still
@@ -783,6 +785,7 @@ def test_refused_source_plane_url_is_never_visible_to_a_concurrent_request(plane
         assert os.environ["HERMES_CONFIG_REMOTE_URL"] == plane.url
 
 
+@pytest.mark.platforms("posix")  # the command secret source requires /bin/sh
 def test_file_mode_publishes_permitted_source_values(monkeypatch, tmp_path):
     """Staging must not lose ordinary secrets: permitted names are published after the check."""
     import os
@@ -1388,6 +1391,7 @@ def _routed_profile(profile_plane, source_env_line):
     return named
 
 
+@pytest.mark.platforms("posix")  # the command secret source requires /bin/sh
 def test_routed_hydration_refuses_a_source_that_supplies_a_protected_name(profile_plane, monkeypatch):
     """Round 4 #2: a routed profile's remote secrets: source supplies HERMES_PORTAL_BASE_URL (where
     auth.json's refresh token is sent). Refused before any snapshot, ownership or scope publication;
@@ -1417,6 +1421,7 @@ def test_routed_hydration_refuses_a_source_that_supplies_a_protected_name(profil
     assert env_loader.hydrate_profile_secret_sources(named) == {"SYNTHETIC_KEY": "routed-ok"}
 
 
+@pytest.mark.platforms("posix")  # the command secret source requires /bin/sh
 def test_file_mode_routed_hydration_drops_only_the_selector(monkeypatch, tmp_path, capsys):
     """Control: under the file backend a routed source may not switch the backend either, but its
     other values (a Portal URL included: file mode has no plane credential) still hydrate."""
@@ -1577,7 +1582,7 @@ def _fresh_interpreter_boot(tmp_path, env, project_env):
             "from hermes_cli.config_backend import get_config_backend\n"
             "from hermes_cli.config import load_config\n"
             "print('RESULT=' + json.dumps([get_config_backend().name, load_config()['display']['personality']]))\n")
-    child = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")}
+    child = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "TMPDIR", "SYSTEMROOT", "SystemRoot", "USERPROFILE", "TEMP", "TMP", "WINDIR")}
     child.update(env, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
     return subprocess.run([sys.executable, "-c", code], env=child, capture_output=True, text=True,
                           timeout=120, stdin=subprocess.DEVNULL, cwd=str(tmp_path), check=False)

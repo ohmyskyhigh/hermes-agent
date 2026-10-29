@@ -295,22 +295,35 @@ def _agent_fs_path(
         )
         return translated if translated is not None else host
     translated = _agent_container_path(
-        raw, profile_home=profile_home, workspace_key=workspace_key, own_sandbox_only=own_sandbox_only,
+        _file_url_container_text(raw), profile_home=profile_home, workspace_key=workspace_key, own_sandbox_only=own_sandbox_only,
         workspace_cwd=workspace_cwd,
     )
     if translated is not None:
         return translated
-    if _is_unmapped_container_path(raw, profile_home=profile_home):
+    if _is_unmapped_container_path(_file_url_container_text(raw), profile_home=profile_home):
         raise HTTPException(status_code=404, detail=SANDBOX_NOT_FOUND)
     return _fs_path(raw_path, cwd=cwd, decode_fallback=decode_fallback)
 
 
 def _file_url_container_text(raw: str) -> str:
-    """The path a POSIX gateway's ``file:`` URL names (``file:///workspace/x`` -> ``/workspace/x``),
-    so a container path spelled as a URL translates like the bare path. Any other text, and every
-    URL on a Windows gateway, is returned unchanged; ``_fs_path`` already refused a bad URL."""
-    if os.name == "nt" or not raw.lower().startswith("file:"):
+    """Decode a local POSIX file URL for container translation, before host path conversion.
+
+    Windows drive and UNC URLs remain host paths. An encoded separator never acquires a new
+    container meaning; the native path reader retains its refusal for those URLs.
+    """
+    if not raw.lower().startswith("file:"):
         return raw
+    if os.name == "nt":
+        try:
+            parsed = urllib.parse.urlparse(raw)
+        except ValueError:
+            return raw
+        decoded_path = urllib.parse.unquote(parsed.path)
+        if (parsed.netloc.lower() not in ("", "localhost") or not parsed.path.startswith("/")
+                or decoded_path.startswith("//") or re.match(r"/[a-z]:", decoded_path, re.IGNORECASE)
+                or re.search(r"%(?:2f|5c)", parsed.path, re.IGNORECASE)):
+            return raw
+        return decoded_path
     try:
         return _file_url_path(raw)
     except ValueError:

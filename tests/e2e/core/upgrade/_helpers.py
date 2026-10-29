@@ -18,7 +18,6 @@ Every Hermes process these suites spawn runs:
 from __future__ import annotations
 
 import os
-import pwd
 import shutil
 import signal
 import subprocess
@@ -28,8 +27,11 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 WORKTREE = Path(__file__).resolve().parents[4]
-REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
-UID = os.getuid()
+if os.name == "nt":
+    REAL_HOME, UID = Path.home(), None
+else:
+    import pwd
+    REAL_HOME, UID = Path(pwd.getpwuid(os.getuid()).pw_dir), os.getuid()
 
 
 def _home_resetting_profile_scripts() -> tuple[Path, ...]:
@@ -50,7 +52,8 @@ def _home_resetting_profile_scripts() -> tuple[Path, ...]:
 # (host_path, sandbox_path) masks for login-shell probes: /dev/null over each HOME-resetting script.
 LOGIN_SHELL_RO_BINDS = tuple((Path("/dev/null"), s) for s in _home_resetting_profile_scripts())
 
-_ENV_ALLOW = ("LANG", "LC_ALL", "TZ", "TERM", "SHELL", "USER", "LOGNAME", "TMPDIR", "SSL_CERT_FILE")
+_ENV_ALLOW = ("LANG", "LC_ALL", "TZ", "TERM", "SHELL", "USER", "LOGNAME", "TMPDIR", "SSL_CERT_FILE",
+              "SYSTEMROOT", "SystemRoot", "COMSPEC", "PATHEXT", "WINDIR", "TEMP", "TMP")
 _SHIMMED = ("systemctl", "launchctl", "sudo", "loginctl", "journalctl")
 
 
@@ -118,6 +121,8 @@ def isolated_env(
     write_shims(shim_dir)
     env = {k: os.environ[k] for k in _ENV_ALLOW if k in os.environ}
     env.setdefault("LANG", "C.UTF-8")
+    if os.name == "nt":
+        env["USERPROFILE"] = str(home)
     env.update(
         HOME=str(home),
         HERMES_HOME=str(hermes_home),

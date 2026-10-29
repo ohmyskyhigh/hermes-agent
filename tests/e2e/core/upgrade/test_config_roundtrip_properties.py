@@ -952,8 +952,8 @@ _PERSISTENT_FAULTS = {
 @pytest.mark.parametrize("fault", sorted(_PERSISTENT_FAULTS))
 @pytest.mark.parametrize("op_name", list(_P3_OPS))
 def test_p3_unreadable_or_partial_file_is_never_rewritten(op_name, fault, web_app, home, monkeypatch):
-    if fault == "unreadable" and os.geteuid() == 0:
-        pytest.skip("root reads mode-000 files")
+    if fault == "unreadable" and (os.name == "nt" or os.geteuid() == 0):
+        pytest.skip("mode-000 readability requires an unprivileged POSIX user")
     case = gen_case(710, null_leaves=False, exclude_top={"display"})
     cfg = _cfg_path()
     ctx = {"new": "ares", "client": _client(web_app)}

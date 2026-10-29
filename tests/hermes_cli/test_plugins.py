@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import hermes_yaml as yaml
+from hermes_platform.host import facts
 
 from hermes_cli.plugins import (
     ENTRY_POINTS_GROUP,
@@ -123,7 +124,6 @@ class TestPluginDiscovery:
         self, monkeypatch, caplog
     ):
         from hermes_cli import plugins as plugins_mod
-
         manifest = PluginManifest(
             name="nemo_relay",
             key="observability/nemo_relay",
@@ -171,7 +171,7 @@ class TestPluginDiscovery:
                 "$schema": PLUGIN_SCHEMA_V1,
                 "name": "portable.test",
                 "extensions": {"com.nousresearch.hermes": {"servers": {"worker": {
-                    "app": {"darwin": {"presence": "executable", "location": str(app)}},
+                    "app": {facts.os_family(): {"presence": "executable", "location": str(app)}},
                     "requires": {"app": True},
                     "liveness": {"kind": "static"},
                 }}}},

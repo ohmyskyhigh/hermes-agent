@@ -37,8 +37,8 @@ def plugin(monkeypatch):
 
 
 def _fake_binary(tmp_path, monkeypatch, name: str) -> None:
-    exe = tmp_path / name
-    exe.write_text("#!/bin/sh\nexit 0\n")
+    exe = tmp_path / (name + ".cmd" if os.name == "nt" else name)
+    exe.write_text("@exit /b 0\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n")
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
 

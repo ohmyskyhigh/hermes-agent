@@ -11,6 +11,7 @@ import pytest
 from hermes_cli.dashboard_auth import ws_tickets
 
 
+@pytest.mark.platforms("linux")  # installs the Linux bot-desktop apt packages
 def test_install_worker_keeps_the_requested_profile_scope(tmp_path, monkeypatch):
     from hermes_constants import get_hermes_home
     from tools.bot_desktop import install, runtime
@@ -233,6 +234,7 @@ def test_lease_acquire_and_release_only_honour_an_id_this_connection_minted(monk
     assert rpc(mine, "display.lease.release", {"viewer_id": minted})["result"]["lease"]["holder"] == _fresh_lease.AGENT
 
 
+@pytest.mark.platforms("linux")  # installs the Linux bot-desktop apt packages
 def test_install_sudo_card_ignores_a_client_supplied_session_id(monkeypatch):
     """The sudo card is app-level: it goes to the connection that clicked Install (copy_context
     pins the transport) with an EMPTY session. Honouring params.session_id let a caller route the

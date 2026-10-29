@@ -315,13 +315,17 @@ sys.exit(2)
 """
 
 
-def test_cli_that_stops_reading_is_reported_with_its_exit_text(tmp_path):
+def test_cli_that_stops_reading_is_reported_with_its_exit_text(tmp_path, monkeypatch):
     """A CLI dying before it reads the first request: the write raised a bare BrokenPipeError, so the
     user never saw the CLI's own crash text (and the error read as a client bug)."""
+    monkeypatch.setattr("agent.acp_client._acp_supported", lambda *_: None)
     server = tmp_path / "stdin_closing_acp.py"
     server.write_text(_STDIN_CLOSING_ACP_CLI, encoding="utf-8")
     closed = tmp_path / "stdin-closed"
-    client = _AcmeClient(command=sys.executable, args=[str(server), str(closed)], acp_cwd=str(tmp_path))
+    # The Windows venv redirector keeps another stdin handle until its child exits.
+    # Launch the stdlib-only fixture directly so closing fd 0 really removes its reader.
+    python = sys._base_executable if os.name == "nt" else sys.executable
+    client = _AcmeClient(command=python, args=[str(server), str(closed)], acp_cwd=str(tmp_path))
     real_spawn = client._spawn
 
     def spawn_then_wait_for_the_close():
@@ -341,13 +345,15 @@ time.sleep(120)
 """
 
 
-def test_cli_that_stops_reading_but_keeps_running_fails_fast(tmp_path):
+def test_cli_that_stops_reading_but_keeps_running_fails_fast(tmp_path, monkeypatch):
     """Alive with its stdin closed: the request can never be read, so the write's broken pipe is the
     answer; waiting for a reply would hang for the whole request timeout."""
+    monkeypatch.setattr("agent.acp_client._acp_supported", lambda *_: None)
     server = tmp_path / "deaf_acp.py"
     server.write_text(_DEAF_ACP_CLI, encoding="utf-8")
     closed = tmp_path / "stdin-closed"
-    client = _AcmeClient(command=sys.executable, args=[str(server), str(closed)], acp_cwd=str(tmp_path))
+    python = sys._base_executable if os.name == "nt" else sys.executable
+    client = _AcmeClient(command=python, args=[str(server), str(closed)], acp_cwd=str(tmp_path))
     real_spawn = client._spawn
 
     def spawn_then_wait_for_the_close():

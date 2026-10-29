@@ -265,8 +265,8 @@ def _tool_defs_cache_key(
         return None
     try:
         from hermes_cli.config import get_config_path
-        from hermes_cli.config_backend import config_version
-        cfg_fp = config_version(get_config_path())
+        from hermes_cli.config_backend import config_cache_version
+        cfg_fp = config_cache_version(get_config_path())
     except (FileNotFoundError, OSError, ImportError):
         cfg_fp = None
     return (

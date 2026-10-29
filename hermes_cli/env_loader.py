@@ -163,6 +163,13 @@ def dotenv_published_values(name: str) -> frozenset[str]:
         return frozenset(value for key, (_base, value, _pass) in _DOTENV_PUBLISHED.items() if key.upper() == folded)
 
 
+def dotenv_previous_values(name: str) -> frozenset[str]:
+    """Values replaced by this process's dotenv load, matching environment names by case."""
+    with _DOTENV_LOCK:
+        return frozenset(base for key, (base, _value, _pass) in _DOTENV_PUBLISHED.items()
+                         if key.upper() == name.upper() and base is not None)
+
+
 def managed_dotenv_keys() -> frozenset[str]:
     """KEY names the administrator-managed ``.env`` loaded (see ``_MANAGED_DOTENV_KEYS``). Policy for
     every profile: never stripped from a routed child, and re-applied over the routed scope."""

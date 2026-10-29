@@ -222,7 +222,11 @@ class FileBackend:
     def cache_version(self, home: Path, version: tuple[Any, ...]) -> tuple[Any, ...]:
         # utils.file_cache_version's rule. ``version`` is config_version's opaque token, so the
         # racy test takes the file's own signature.
-        from utils import racy_content_digest
+        from utils import file_cache_version, racy_content_digest
+        # Windows ctime is creation time: even a settled stat cannot detect a same-size
+        # in-place rewrite with a restored mtime. Keep the content signature there.
+        if os.name == "nt":
+            return (*version, file_cache_version(self.config_path(home), always_digest=True)[-1])
         return (*version, racy_content_digest(self.config_path(home), self.version(home)))
 
     def exists(self, home: Path) -> bool:

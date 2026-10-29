@@ -127,6 +127,7 @@ def test_compute_host_shutdown_frame_writes_the_open_sessions_summary(metrics_ho
     assert "hermes.session.count" in _metric_names(home)
 
 
+@pytest.mark.platforms("posix")
 def test_sigtermed_kanban_worker_writes_the_open_sessions_summary(metrics_home, monkeypatch):
     import signal
 

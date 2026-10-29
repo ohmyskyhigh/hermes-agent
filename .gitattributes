@@ -35,3 +35,6 @@ docker/entrypoint.sh text eol=lf
 *.html  text eol=lf
 *.svg   text eol=lf
 *.ps1   text eol=crlf
+
+# The conformance manifest's exact bytes are an approved integrity pin.
+plugins/config_backends/remote/vendor/conformance/config-fixtures.sha256 text eol=lf

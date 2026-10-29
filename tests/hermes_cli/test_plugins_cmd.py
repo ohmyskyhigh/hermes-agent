@@ -33,7 +33,7 @@ def _write_portable_app_plugin(root: Path, app: Path, os_key: str | None = None)
         "$schema": PLUGIN_SCHEMA_V1,
         "name": "example-plugin",
         "extensions": {"com.nousresearch.hermes": {"servers": {"worker": {
-            "app": {os_key or os_family(): {"presence": "executable", "location": str(app)}},
+            "app": {os_key or os_family(): {"presence": "executable", "location": app.as_posix()}},
             "requires": {"app": True},
         }}}},
     }), encoding="utf-8")
@@ -58,7 +58,8 @@ def test_portable_install_gate_on_undeclared_os_does_not_say_install(tmp_path: P
     from hermes_platform.host.facts import os_family
 
     other = next(o for o in ("linux", "darwin", "win32") if o != os_family())
-    _write_portable_app_plugin(tmp_path, tmp_path / "example-app", os_key=other)
+    app = Path("C:/example-app" if other == "win32" else "/example-app")
+    _write_portable_app_plugin(tmp_path, app, os_key=other)
     with pytest.raises(PluginOperationError, match="Example App is not supported on this operating system") as exc:
         _refuse_unavailable_portable_plugin("example-plugin", tmp_path, "Example App")
     assert "Install" not in str(exc.value)
@@ -144,6 +145,7 @@ class TestResolveSubdirWithin:
 
 
 
+    @pytest.mark.require_symlinks
     def test_rejects_symlink_escape(self, tmp_path):
         clone = tmp_path / "clone"
         clone.mkdir()
@@ -176,9 +178,10 @@ class TestGitPullPluginDirAutostash:
         git(origin, "init", "-q", "-b", "main")
         git(origin, "config", "user.email", "t@t")
         git(origin, "config", "user.name", "t")
+        (origin / ".gitattributes").write_text("plugin.py text eol=lf\n", encoding="utf-8", newline="")
         pad = "\n".join(f"# pad {i}" for i in range(12))
         (origin / "plugin.py").write_text(
-            f"VALUE = 1\n{pad}\nOTHER = 'a'\n", encoding="utf-8"
+            f"VALUE = 1\n{pad}\nOTHER = 'a'\n", encoding="utf-8", newline=""
         )
         git(origin, "add", ".")
         git(origin, "commit", "-qm", "init")
@@ -195,7 +198,7 @@ class TestGitPullPluginDirAutostash:
         f = repo / "plugin.py"
         lines = f.read_text(encoding="utf-8").splitlines()
         lines = [new_line if ln.startswith(prefix) else ln for ln in lines]
-        f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        f.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
     def test_dirty_checkout_pulls_and_reapplies_local_edit(self, tmp_path):
         import hermes_cli.plugins_cmd as pc
@@ -681,7 +684,7 @@ class TestSubdirInstallE2E:
         plugins_dir = tmp_path / "home/plugins"
         monkeypatch.setenv("HERMES_HOME", str(plugins_dir.parent))
 
-        identifier = f"file://{repo_root}#my-plugin"
+        identifier = f"{repo_root.as_uri()}#my-plugin"
         target, manifest, name = pc._install_plugin_core(identifier, force=False)
 
         # Installed under the plugin's own name, not the repo name.
@@ -709,7 +712,7 @@ class TestSubdirInstallE2E:
         plugins_dir.mkdir()
         monkeypatch.setattr(pc, "_plugins_dir", lambda: plugins_dir)
 
-        identifier = f"file://{repo_root}#does-not-exist"
+        identifier = f"{repo_root.as_uri()}#does-not-exist"
         with pytest.raises(PluginOperationError, match="does not exist"):
             pc._install_plugin_core(identifier, force=False)
 
@@ -727,7 +730,7 @@ class TestSubdirInstallE2E:
         self._make_repo_with_subdir_plugin(repo_root)
         plugins_dir = tmp_path / "home/plugins"
         monkeypatch.setenv("HERMES_HOME", str(plugins_dir.parent))
-        target, _manifest, _name = pc._install_plugin_core(f"file://{repo_root}#my-plugin", force=False)
+        target, _manifest, _name = pc._install_plugin_core(f"{repo_root.as_uri()}#my-plugin", force=False)
         assert not (target / ".git").exists()
 
         (repo_root / "my-plugin" / "__init__.py").write_text("VERSION = 2\n", encoding="utf-8")
@@ -773,7 +776,7 @@ class TestSubdirInstallE2E:
         monkeypatch.setenv("HERMES_HOME", str(plugins_dir.parent))
 
         target, manifest, name = pc._install_plugin_core(
-            f"file://{repo_root}", force=False
+            f"{repo_root.as_uri()}", force=False
         )
 
         assert name == "portable.test"

@@ -59,8 +59,13 @@ def sandboxes(monkeypatch, tmp_path):
         (root / "note.txt").write_text(f"{label} note", encoding="utf-8")
     (outside / "secret.mp4").write_bytes(b"outside-clip")
     (outside / "secret.txt").write_text("outside note", encoding="utf-8")
-    (own / "escape.mp4").symlink_to(outside / "secret.mp4")
-    (own / "escape.txt").symlink_to(outside / "secret.txt")
+    try:
+        (own / "escape.mp4").symlink_to(outside / "secret.mp4")
+        (own / "escape.txt").symlink_to(outside / "secret.txt")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("sandbox escape fixture requires native symlink privileges")
+        raise
     monkeypatch.setenv("TERMINAL_SANDBOX_DIR", str(sandbox))
     monkeypatch.setenv("TERMINAL_ENV", "docker")
     monkeypatch.setenv("TERMINAL_CONTAINER_PERSISTENT", "true")

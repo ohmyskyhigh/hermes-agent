@@ -272,7 +272,7 @@ def test_import_claude_session(tmp_path, gateway):
 
 def test_import_codex_session(tmp_path, gateway):
     f = _write_codex_fixture(tmp_path)
-    f.write_text(f.read_text(encoding="utf-8").replace("/home/user/repo", str(tmp_path)), encoding="utf-8")
+    f.write_text(f.read_text(encoding="utf-8").replace("/home/user/repo", json.dumps(str(tmp_path))[1:-1]), encoding="utf-8")
     session_id = import_foreign_session("@codex", f)
     row = gateway.db.get_session(session_id)
     assert row is not None

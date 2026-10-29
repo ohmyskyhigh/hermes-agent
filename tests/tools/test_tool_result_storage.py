@@ -296,6 +296,8 @@ class TestMaybePersistToolResult:
         )
         cmd = env.execute.call_args_list[1][0][0]
         target = cmd.split("cat > ", 1)[1].split(" <<", 1)[0]
+        import shlex
+        [target] = shlex.split(target)
 
         from tools.tool_result_storage import STORAGE_DIR
 

@@ -557,7 +557,8 @@ def test_browser_exec_points_at_vision_analyze_only_when_the_session_has_it(monk
             not native and "vision_analyze" in names)
 
 
-def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path):
+@pytest.mark.parametrize("mtime_offset", [0, -3600])
+def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path, mtime_offset):
     """#111105: a same-size config.yaml swapped in with the old mtime must change the memo key."""
     import os
     import shutil
@@ -567,6 +568,8 @@ def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path)
 
     cfg = tmp_path / "config.yaml"
     cfg.write_text("mcp_servers:\n  aa: {command: a}\n", encoding="utf-8")
+    st = cfg.stat()
+    os.utime(cfg, ns=(st.st_atime_ns, st.st_mtime_ns + mtime_offset * 1_000_000_000))
     with patch("hermes_cli.config.get_config_path", return_value=cfg):
         before = _tool_defs_cache_key(None, None, False)
         st = cfg.stat()

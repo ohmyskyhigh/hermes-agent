@@ -131,7 +131,21 @@ def test_a_local_folder_source_is_installed_like_the_cli_installs_it(home, repo)
     assert (_root(home) / result["plugin_name"] / "plugin.js").is_file()
 
 
-def test_a_link_out_of_the_clone_is_refused(home, repo, tmp_path):
+@pytest.mark.require_symlinks
+def test_a_link_out_of_the_clone_is_refused(home, repo, tmp_path, monkeypatch):
+    from hermes_cli import plugins_cmd
+
+    _git(repo, "config", "core.symlinks", "true")
+    clone = plugins_cmd._clone_plugin_repo
+
+    def clone_with_native_links(dest, *args, **kwargs):
+        clone(dest, *args, **kwargs)
+        # Git for Windows otherwise materializes a symlink blob as an ordinary file.
+        # This test exercises a real directory link; the marker checks actual privileges.
+        (dest / "desktop").unlink()
+        _git(dest, "-c", "core.symlinks=true", "checkout", "HEAD", "--", "desktop")
+
+    monkeypatch.setattr(plugins_cmd, "_clone_plugin_repo", clone_with_native_links)
     outside = tmp_path / "secrets"
     outside.mkdir()
     (outside / "plugin.js").write_text("// any folder of the host\n", encoding="utf-8")
@@ -190,6 +204,7 @@ def test_remove_refuses_a_packages_own_half_until_forced(home, repo):
     assert not (_root(home) / "pkg").exists()
 
 
+@pytest.mark.require_symlinks
 def test_remove_leaves_a_linked_plugin_alone_and_names_nothing_outside_the_root(home, tmp_path):
     checkout = tmp_path / "dev"
     checkout.mkdir()

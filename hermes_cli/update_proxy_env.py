@@ -74,6 +74,12 @@ def prefer_dotenv_proxy_env(environ: MutableMapping[str, str] | None = None) -> 
     own = {e for key in _NO_PROXY_KEYS for e in no_proxy_entries(env.get(SAVED_PREFIX + key, ""))}
     added = [e for key in _NO_PROXY_KEYS if env.get(key, users) != users
              for e in no_proxy_entries(env[key]) if e not in own]
+    # Windows has one case-insensitive NO_PROXY slot, so the .env replaced both spellings.
+    # Its recorded pre-load value still contains the bypass entries injected by Desktop.
+    if os.name == "nt" and env is os.environ:
+        from hermes_cli.env_loader import dotenv_previous_values
+        added.extend(e for value in dotenv_previous_values("no_proxy")
+                     for e in no_proxy_entries(value) if e not in own)
     merged = ",".join(dict.fromkeys([*no_proxy_entries(users), *added]))
     for key in _NO_PROXY_KEYS:
         if key in env:

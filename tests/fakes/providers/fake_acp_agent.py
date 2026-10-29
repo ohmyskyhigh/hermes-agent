@@ -25,7 +25,6 @@ is the agent itself: ``fake_acp_agent.py --acp --stdio --state <dir>``.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import signal
@@ -334,6 +333,8 @@ class Agent:
 
     def _claim_turn(self) -> int:
         """Next scripted turn index, shared across every process of the scenario (file lock)."""
+        import fcntl
+
         with open(self.state_dir / "turn.counter", "a+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             fh.seek(0)

@@ -208,7 +208,9 @@ def test_an_ssh_stream_ticket_plays_ranges_and_only_its_own_profile_and_path(cli
         ):
             assert player.get("/api/files/stream", params={**foreign, "ticket": ticket}).status_code == 401, foreign
         # The default profile's own ticket names no SSH workspace: this host has no such clip.
-        assert client.post("/api/files/ticket", json={"route": "stream", "path": CLIP}).status_code == 404
+        import os
+        expected = 400 if os.name == "nt" else 404  # a POSIX host path is invalid on Windows
+        assert client.post("/api/files/ticket", json={"route": "stream", "path": CLIP}).status_code == expected
 
         mark_named_profile_deleted(profile)
         gone = player.get("/api/files/stream", params={**query, "ticket": ticket})

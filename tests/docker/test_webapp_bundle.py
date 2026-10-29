@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
+pytestmark = pytest.mark.platforms("linux")
+
 
 def test_webapp_build_only_reuses_the_baked_bundle(built_image: str) -> None:
     inner = "source /opt/hermes/.venv/bin/activate && cd /opt/data && hermes webapp --build-only"

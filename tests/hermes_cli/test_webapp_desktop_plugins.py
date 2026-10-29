@@ -43,7 +43,7 @@ def webapp(monkeypatch, hermes_root):
 def _install(root, name, source, marker=None):
     folder = root / "desktop-plugins" / name
     folder.mkdir(parents=True)
-    (folder / "plugin.js").write_text(source, encoding="utf-8")
+    (folder / "plugin.js").write_text(source, encoding="utf-8", newline="")
     if marker is not None:
         (folder / ".hermes-package.json").write_text(json.dumps(marker), encoding="utf-8")
     return folder

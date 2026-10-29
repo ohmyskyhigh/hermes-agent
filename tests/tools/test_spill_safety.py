@@ -28,6 +28,13 @@ def test_write_creates_file_with_content(tmp_path):
     assert target.read_text(encoding="utf-8") == "hello\n"
 
 
+@pytest.mark.parametrize("text", ["line\nnext\n", "line\r\nnext\r\n", "line\rnext\r", "\ufeff中文\r\n"])
+def test_text_write_preserves_the_supplied_bytes(tmp_path, text):
+    target = tmp_path / "page.txt"
+    write_text_exclusive(target, text)
+    assert target.read_bytes() == text.encode("utf-8")
+
+
 @posix_only
 def test_private_file_is_0600(tmp_path):
     target = tmp_path / "spill.txt"

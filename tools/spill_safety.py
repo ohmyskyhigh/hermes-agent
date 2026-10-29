@@ -53,7 +53,7 @@ def open_exclusive(path: Path, *, private: bool = True, overwrite: bool = False,
     mode = 0o600 if private else 0o666  # non-private honors umask
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW, mode)
     try:
-        return os.fdopen(fd, "w", encoding=encoding, errors=errors)
+        return os.fdopen(fd, "w", encoding=encoding, errors=errors, newline="")
     except Exception:
         os.close(fd)
         raise

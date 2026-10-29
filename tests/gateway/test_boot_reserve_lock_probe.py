@@ -8,7 +8,6 @@ flock exactly where a probe holds it and boot through the real reserve.
 """
 import asyncio
 from contextlib import contextmanager
-import fcntl
 from pathlib import Path
 import subprocess
 import sys
@@ -37,6 +36,8 @@ def _homes(tmp_path):
 def _probe_hold(home):
     """What ``_probe_lock_file`` holds between its acquire and release: an exclusive flock on its
     own open file description, with no record written."""
+    import fcntl
+
     handle = open(home / "gateway.lock", "r+", encoding="utf-8")
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     return handle

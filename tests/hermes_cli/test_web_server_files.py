@@ -13,6 +13,19 @@ from hermes_cli import web_server, web_server_files
 import hermes_cli.web_routers.files as _rt_files
 
 
+@pytest.mark.platforms("windows")
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("file:///workspace/a%20b", "/workspace/a b"),
+    ("file://[broken", "file://[broken"),
+    ("file:///C:/Users/x", "file:///C:/Users/x"),
+    ("file://server/share/a", "file://server/share/a"),
+    ("file:///workspace/a%2fb", "file:///workspace/a%2fb"),
+    ("file:///%43:/a", "file:///%43:/a"),
+])
+def test_container_file_url_decode_preserves_native_refusals(raw, expected):
+    assert web_server_files._file_url_container_text(raw) == expected
+
+
 def _client_with_app_state():
     prev_auth_required = getattr(web_server.app.state, "auth_required", None)
     prev_bound_host = getattr(web_server.app.state, "bound_host", None)

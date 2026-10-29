@@ -34,7 +34,7 @@ def plane_env(tmp_path):
     home.mkdir()
     with StubPlane() as plane:
         env = {k: v for k, v in os.environ.items() if k in {"PATH", "HOME", "TMPDIR", "LANG", "TZ",
-                                                           "PYTHONHASHSEED", "HERMES_TEST_ISOLATION"}}
+                                                           "PYTHONHASHSEED", "HERMES_TEST_ISOLATION", "SystemRoot", "SYSTEMROOT", "USERPROFILE", "TEMP", "TMP", "WINDIR"}}
         env.update(remote_env(plane), HERMES_HOME=str(home), PYTHONPATH=str(REPO), HERMES_YOLO_MODE="",
                    PYTHONDONTWRITEBYTECODE="1")
         plane.upper = {"display": {"personality": "concise"}}
