@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 
 import pytest
 
 from hermes_cli import main as cli_main
 from hermes_cli import update_cmd_windows
+from tests.waiting import wait_until
 
 
 def _args(**overrides):
@@ -35,7 +38,12 @@ def test_list_venv_holders_json_and_exit_3_when_holders_present(monkeypatch, cap
         (4444, "python.exe", r"C:\hermes\venv\Scripts\python.exe -m hermes_cli.main -p work kanban list"),
         (4545, "python.exe", r"C:\hermes\venv\Scripts\python.exe some_script.py"),
     ]
-    monkeypatch.setattr(cli_main, "_detect_venv_python_processes", lambda: holders)
+    monkeypatch.setattr(update_cmd_windows, "_detect_venv_python_processes", lambda: holders)
+
+    def retired_hook(**_kwargs):
+        raise AssertionError("current read-only command used the retired updater hook")
+
+    monkeypatch.setattr(cli_main, "_detect_venv_python_processes", retired_hook)
 
     with pytest.raises(SystemExit) as exc:
         cli_main.cmd_update(_args())
@@ -49,7 +57,7 @@ def test_list_venv_holders_json_and_exit_3_when_holders_present(monkeypatch, cap
 
 
 def test_list_venv_holders_empty_list_exits_zero_without_updating(monkeypatch, capsys, _quiet_preflight):
-    monkeypatch.setattr(cli_main, "_detect_venv_python_processes", list)
+    monkeypatch.setattr(update_cmd_windows, "_detect_venv_python_processes", list)
 
     def _boom(*_a, **_k):  # the mutating update body must never run behind the read-only flag
         raise AssertionError("update body ran")
@@ -58,3 +66,26 @@ def test_list_venv_holders_empty_list_exits_zero_without_updating(monkeypatch, c
 
     assert cli_main.cmd_update(_args()) is None
     assert json.loads(capsys.readouterr().out) == []
+
+
+@pytest.mark.platforms("windows")
+def test_read_only_command_reports_a_live_native_interpreter(monkeypatch, capsys, tmp_path):
+    """Exercise the real scanner through cmd_update, including a venv launcher PID."""
+    monkeypatch.setattr("hermes_cli.config.is_managed", lambda: False)
+    ready = tmp_path / "holder-ready"
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import pathlib,sys; "
+         "pathlib.Path(sys.argv[1]).write_text('ready', encoding='utf-8'); sys.stdin.read()", str(ready)],
+        cwd=tmp_path, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    try:
+        wait_until(ready.is_file, timeout=15, what="native interpreter holder ready")
+        with pytest.raises(SystemExit) as exc:
+            cli_main.cmd_update(_args())
+        assert exc.value.code == update_cmd_windows.VENV_HOLDERS_EXIT == 3
+        holders = json.loads(capsys.readouterr().out)
+        assert child.pid in {entry["pid"] for entry in holders}
+    finally:
+        child.stdin.close()
+        child.wait(timeout=15)

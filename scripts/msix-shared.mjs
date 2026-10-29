@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
+/** @type {{python: string, input: string} | null} */
 let lastValidatedChannelInput = null
 
 /** Build-only structured bridge; never read by the installed runtime.

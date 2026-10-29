@@ -645,7 +645,7 @@ function runLocalWindowsCommand(command, stdinData, environment = process.env, c
 }
 
 test.skipIf(process.platform !== 'win32')('Windows platform probe executes in real PowerShell', async () => {
-  const tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-probe-')))
+  const tempDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-probe-')))
   const hermesPath = path.join(tempDir, 'hermes.exe')
 
   try {
@@ -664,8 +664,8 @@ test.skipIf(process.platform !== 'win32')('Windows platform probe executes in re
       )
 
       assert.equal(result.os, 'Windows')
-      assert.equal(result.hermesPath, hermesPath)
-      assert.equal(result.python, path.join(tempDir, 'python.exe'))
+      assert.equal(fs.realpathSync.native(result.hermesPath), fs.realpathSync.native(hermesPath))
+      assert.equal(fs.realpathSync.native(result.python), fs.realpathSync.native(path.join(tempDir, 'python.exe')))
     }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
