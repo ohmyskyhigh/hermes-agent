@@ -139,11 +139,12 @@ def test_a_link_out_of_the_clone_is_refused(home, repo, tmp_path, monkeypatch):
     clone = plugins_cmd._clone_plugin_repo
 
     def clone_with_native_links(dest, *args, **kwargs):
-        clone(dest, *args, **kwargs)
+        sha = clone(dest, *args, **kwargs)
         # Git for Windows otherwise materializes a symlink blob as an ordinary file.
         # This test exercises a real directory link; the marker checks actual privileges.
         (dest / "desktop").unlink()
         _git(dest, "-c", "core.symlinks=true", "checkout", "HEAD", "--", "desktop")
+        return sha
 
     monkeypatch.setattr(plugins_cmd, "_clone_plugin_repo", clone_with_native_links)
     outside = tmp_path / "secrets"
