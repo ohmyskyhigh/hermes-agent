@@ -8,3 +8,21 @@ Importing it once here, before any window opens, keeps boot out of the mocked im
 """
 
 import hermes_bootstrap
+
+import subprocess
+import sys
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _preserve_native_subprocess_reader_threads(monkeypatch):
+    """Inline agent-thread fakes must not replace Windows Popen's pipe reader threads.
+
+    Popen uses Thread(target=reader, args=(pipe, buffer)) and joins both readers. The synchronous
+    agent fakes intentionally implement only target(), so give subprocess its real threading API.
+    """
+    if sys.platform == "win32":
+        monkeypatch.setattr(subprocess, "threading", SimpleNamespace(**vars(threading)))

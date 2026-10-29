@@ -912,7 +912,13 @@
     "tests/tui_gateway/test_slash_worker_mcp_discovery.py",
     "tests/tui_gateway/test_slash_worker_owned.py",
     "tests/tui_gateway/test_slash_worker_provider.py",
-    "tests/scripts/test_run_tests_windows_environment.py"
+    "tests/scripts/test_run_tests_windows_environment.py",
+    "tests/tui_gateway/test_ssh_session_cwd_persistence.py",
+    "tests/tui_gateway/test_remote_backend_launch_cwd.py",
+    "tests/tui_gateway/test_completion_cwd_profile_fallback.py",
+    "tests/tui_gateway/test_desktop_session_workspace_persistence.py",
+    "tests/tui_gateway/test_session_cwd_follow.py",
+    "tests/tui_gateway/test_container_backend_workdir.py"
   ],
   "platform_test_files": {
     "linux": [],
