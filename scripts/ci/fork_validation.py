@@ -86,7 +86,8 @@ def main() -> int:
     evidence = {"commit": args.expected_commit, "tree": tree,
                 "policy_sha256": args.policy_sha256, "platform": args.platform,
                 "required_files": files, "summary": summary,
-                "skip_policy": policy["skip_policy"], "full_repository_suite": False}
+                "skip_policy": policy["skip_policy"], "full_repository_suite": False,
+                "execution": {"jobs": args.jobs, "file_timeout_seconds": 600, "file_retries": 0}}
     (args.output / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     return 0
 

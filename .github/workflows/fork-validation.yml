@@ -24,10 +24,13 @@ jobs:
         include:
           - platform: linux
             runner: ubuntu-latest
+            jobs: 4
           - platform: windows
             runner: windows-latest
+            jobs: 2
           - platform: macos
             runner: macos-latest
+            jobs: 4
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       POLICY_SHA256: f318d72f835620a10758df48b956af634c25477c1a8ad406c9810cb7312b4f25
@@ -56,7 +59,7 @@ jobs:
         run: |
           "$HERMES_PYTHON" scripts/ci/fork_validation.py --bash "$BASH" \
             --platform '${{ matrix.platform }}' --expected-commit "$EXPECTED_SHA" \
-            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/fork-evidence" --jobs 4
+            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/fork-evidence" --jobs '${{ matrix.jobs }}'
       - name: Upload exact-SHA evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
