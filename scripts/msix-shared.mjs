@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
+let lastValidatedChannelInput = null
 
 /** Build-only structured bridge; never read by the installed runtime.
  * @param {NodeJS.ProcessEnv} [env]
@@ -26,9 +27,18 @@ export function channelBuildRequest(env = process.env) {
     'from scripts.bundles.desktop_prepare import validate_channel_request',
     'validate_channel_request(decode_json(sys.stdin.buffer.read()))'
   ].join('; ')
-  execFileSync(env.HERMES_PYTHON || 'python', ['-I', '-S', '-c', validator, path.resolve(import.meta.dirname, '..')], {
-    env, input: env._HERMES_CHANNEL_REQUEST_JSON, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000
-  })
+  const python = env.HERMES_PYTHON || 'python'
+  const input = env._HERMES_CHANNEL_REQUEST_JSON
+  // The Python validator is a pure check of these bytes. Packaging checks the
+  // same admitted request repeatedly while comparing stamp fields; avoid a new
+  // interpreter for every field. Cache only the last successful byte sequence,
+  // bound to its interpreter, and still check all environment conflicts per call.
+  if (lastValidatedChannelInput?.python !== python || lastValidatedChannelInput?.input !== input) {
+    execFileSync(python, ['-I', '-S', '-c', validator, path.resolve(import.meta.dirname, '..')], {
+      env, input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 30_000
+    })
+    lastValidatedChannelInput = { python, input }
+  }
   if (env.HERMES_PAYLOAD_VERSION && env.HERMES_PAYLOAD_VERSION !== value.version) throw new Error('Channel package version conflicts with prepared request')
   Object.freeze(value.identity)
   Object.freeze(value.bundleEnv)

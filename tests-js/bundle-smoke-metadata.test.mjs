@@ -7,6 +7,7 @@ import { bundleIdentity, verifyBundleStamp, verifyMacMetadata } from '../tests/i
 import { stampAssertions } from '../tests/install/e2e-assets/mac-bundled-manifest.cjs'
 import { randomBytes } from 'node:crypto'
 import { buildStampPayload } from '../apps/desktop/scripts/write-build-stamp.mjs'
+import { channelBuildRequest } from '../scripts/msix-shared.mjs'
 
 const commit = 'a'.repeat(40)
 
@@ -68,6 +69,12 @@ test('channel smoke binds the complete admitted request, not a commit-build iden
       windowsVersion: request.windowsVersion })
     const env = { ...process.env, HERMES_DESKTOP_VARIANT: 'bundled', HERMES_BUILD_COMMIT: '',
       HERMES_PAYLOAD_TAG: '', HERMES_PAYLOAD_VERSION: '', _HERMES_CHANNEL_REQUEST_JSON: JSON.stringify(request) }
+    expect(channelBuildRequest(env)).toEqual(request)
+    expect(() => channelBuildRequest({ ...env, _HERMES_CHANNEL_REQUEST_JSON:
+      JSON.stringify({ ...request, windowsVersion: '1.2.3.0' }) })).toThrow()
+    expect(channelBuildRequest(env)).toEqual(request)
+    expect(() => channelBuildRequest({ ...env, HERMES_DESKTOP_VARIANT: 'store' })).toThrow('bundled')
+    expect(() => channelBuildRequest({ ...env, HERMES_PAYLOAD_VERSION: '9.9.9' })).toThrow('conflicts')
     for (const platform of ['darwin', 'win32']) {
       const stamp = buildStampPayload({ commit, dirty: false }, env, platform,
         { runtime: { commands: { hermes: 'bin/hermes' } } })

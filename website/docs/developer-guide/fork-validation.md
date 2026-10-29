@@ -32,6 +32,18 @@ and a file-symlink privilege skip on Windows
 requires execution of the same contract on Linux. Other skips require review.
 This selection is not the entire repository test suite.
 
+Two additional native JavaScript jobs execute the Windows and macOS assertions
+that the Linux workspace check skips. The external manifest pins both files and
+required assertion titles; a missing or skipped native assertion refuses the job.
+Each job archives its full Vitest reports, candidate SHA, tree and manifest hash.
+Signature tests use temporary fixtures and verify or reject existing/ad-hoc
+signatures; these jobs have no publishing, certificate or notarization credentials.
+
+On the Fork's standard Windows runners, each of the thirteen installation/update
+journeys gets a separate host. All existing assertions, strict acceptance,
+per-install deadlines, crash-cell checks and teardown checks remain required.
+The aggregate refuses any failed, cancelled, skipped or missing journey.
+
 Before merging, require strict checks on `main`, confirm its baseline is unchanged,
 bind the merge request to the tested full head SHA, and compare the resulting tree
 with the tested tree. Keep the source and validation receipts in maintenance

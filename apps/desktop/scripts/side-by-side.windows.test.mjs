@@ -11,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
-const { test } = await import(process.env.VITEST ? 'vitest' : 'node:test')
+const { test } = process.env.VITEST ? await import('vitest') : await import('node:test')
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, ...options })
@@ -48,8 +48,11 @@ async function nativeProof() {
     'apps/desktop/product-identity.cjs', 'apps/desktop/electron-builder.config.cjs',
     'apps/desktop/package.json', 'apps/desktop/update-feed.cjs',
     'apps/desktop/assets/msix-manifest.xml',
-    ...['before-build', 'gen-msix-manifest', 'mac-sign', 'payload-digests', 'write-build-stamp', 'utils']
-      .map(name => `apps/desktop/scripts/${name}.mjs`),
+    // Hooks share production helpers. Keep their sibling import closure intact
+    // as helpers are extracted, without copying test files into the fixture.
+    ...fs.readdirSync(path.join(repo, 'apps/desktop/scripts'))
+      .filter(name => /\.(mjs|cjs|js)$/.test(name) && !/\.test\./.test(name))
+      .map(name => `apps/desktop/scripts/${name}`),
     'scripts/msix-shared.mjs', 'scripts/release-content-types.json', 'scripts/build/python.mjs',
     'scripts/bundles/desktop_prepare.py', 'hermes_cli/release_channels.py', 'hermes_cli/__init__.py',
     // desktop_prepare -> scripts.releases.versioning -> semver + hermes_cli.update_channel -> pm:

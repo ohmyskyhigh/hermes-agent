@@ -311,11 +311,12 @@ async function helper(ssh, runtime, operation, args = [], stdinData?) {
   return parsed
 }
 
-function atomicWindowsSpawnCommand(runtime, reservation: any = {}) {
+function atomicWindowsSpawnInvocation(runtime, reservation: any = {}, stdinData = '') {
   const argv = [runtime.python, '-m', 'hermes_cli.windows_ssh_runtime', 'spawn']
   const helper = operation => [runtime.python, '-m', 'hermes_cli.windows_ssh_runtime', operation]
 
   const script = [
+    'param([string]$spawnInput)',
     '$ProgressPreference="SilentlyContinue"',
     '$ErrorActionPreference="Stop"',
     WINDOWS_MARKER_JUDGE_PS,
@@ -343,8 +344,8 @@ function atomicWindowsSpawnCommand(runtime, reservation: any = {}) {
         `& ${helper('remove-lock').map(psLiteral).join(' ')} ${psLiteral(reservation.ownershipId)}|Out-Null}`
       : '',
     reservation.ownershipId
-      ? `  $spawnLines=@(& ${argv.map(psLiteral).join(' ')}); $spawnExit=$LASTEXITCODE`
-      : `  & ${argv.map(psLiteral).join(' ')}`,
+      ? `  $spawnLines=@($spawnInput | & ${argv.map(psLiteral).join(' ')}); $spawnExit=$LASTEXITCODE`
+      : `  $spawnInput | & ${argv.map(psLiteral).join(' ')}`,
     reservation.ownershipId
       ? '  if($spawnExit -ne 0){exit $spawnExit}'
       : '  if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}',
@@ -358,11 +359,25 @@ function atomicWindowsSpawnCommand(runtime, reservation: any = {}) {
     .filter(line => line !== '')
     .join(';')
 
-  return powerShellCommand(script)
+  // The marker/checkout program already exceeds cmd.exe's 8191-character
+  // limit. Frame it together with the backend request on stdin; the short
+  // bootstrap restores UTF-8 before piping the request to the Python helper.
+  const bootstrap = '$ProgressPreference="SilentlyContinue";$ErrorActionPreference="Stop";' +
+    '$utf8=[Text.UTF8Encoding]::new($false);$OutputEncoding=$utf8;[Console]::OutputEncoding=$utf8;[Console]::InputEncoding=$utf8;' +
+    '$frame=[Console]::In.ReadToEnd()|ConvertFrom-Json;' +
+    '$program=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($frame.script));' +
+    '$request=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($frame.input));' +
+    '[ScriptBlock]::Create($program).Invoke($request)'
+
+  return {
+    command: powerShellCommand(bootstrap),
+    stdinData: JSON.stringify({ script: encodedPowerShell(script), input: Buffer.from(stdinData, 'utf8').toString('base64') })
+  }
 }
 
 async function atomicWindowsSpawn(ssh, runtime, stdinData, reservation: any = {}) {
-  const output = await ssh.exec(atomicWindowsSpawnCommand(runtime, reservation), { stdinData })
+  const invocation = atomicWindowsSpawnInvocation(runtime, reservation, stdinData)
+  const output = await ssh.exec(invocation.command, { stdinData: invocation.stdinData })
 
   const lines = stripPowerShellNoise(output)
 
@@ -836,7 +851,7 @@ function buildWindowsInteractiveCommand(remoteCwd = '') {
 
 export {
   assertWindowsRemoteInstallUpdateClear,
-  atomicWindowsSpawnCommand,
+  atomicWindowsSpawnInvocation,
   buildWindowsInteractiveCommand,
   connectWindowsRemote,
   detectRemotePlatform,

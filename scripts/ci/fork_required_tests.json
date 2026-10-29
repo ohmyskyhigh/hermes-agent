@@ -173,7 +173,8 @@
     "tests/hermes_cli/test_update_zip_sync_failure.py",
     "tests/hermes_cli/test_update_zip_two_phase.py",
     "tests/scripts/ci/test_fork_validation.py",
-    "tests/tools/test_feishu_attachment_tool.py"
+    "tests/tools/test_feishu_attachment_tool.py",
+    "tests/scripts/ci/test_fork_native_javascript.py"
   ],
   "platform_test_files": {
     "linux": [],
@@ -204,5 +205,94 @@
     "native_windows_install_update",
     "cua_driver_interface",
     "javascript_dependency_regression"
+  ],
+  "native_javascript": {
+    "windows": {
+      "desktop": {
+        "electron/windows-remote-lifecycle.test.ts": [
+          "Windows spawn waits on <marker>.lock",
+          "Windows platform probe executes in real PowerShell",
+          "Windows spawn streams its Unicode request through a real cmd.exe"
+        ],
+        "electron/update-marker.test.ts": [
+          "Windows reads a SYSTEM process creation time"
+        ],
+        "scripts/side-by-side.windows.test.mjs": [
+          "native Windows SDK packs distinct flavor identities and ordered canary updates"
+        ],
+        "scripts/payload-sign-cache.test.mjs": [
+          "native verification binds cached bytes to the publisher and timestamp",
+          "catalog trust cannot mask the embedded signature"
+        ],
+        "scripts/commit-bundles.windows.test.mjs": [
+          "commit assembly preserves per-arch packages and rejects Store bundles"
+        ],
+        "electron/updater/checkout-legacy.test.ts": [
+          "runs a PM .cmd source check with quoted paths and refuses a missing launcher"
+        ],
+        "scripts/windows-bundle-tools.test.mjs": [
+          "a cold payload signer provisions executable SDK tools and reuses them warm"
+        ],
+        "electron/updater/relaunch-waiter-spawn.windows-live.test.ts": [
+          "a waiter that exits before its handshake reports its own exit code",
+          "a real hidden PowerShell waiter survives parent exit unless cancelled and leaves no stage dir (cancel=false)",
+          "a real hidden PowerShell waiter survives parent exit unless cancelled and leaves no stage dir (cancel=true)"
+        ],
+        "scripts/after-pack-digests.test.mjs": [
+          "afterPack records actual sanitized payload bytes",
+          "afterPack refuses missing or corrupt facts only for a present payload"
+        ],
+        "electron/updater/relaunch-waiter.windows-live.test.ts": [
+          "activates only after parent exit and package change (false)",
+          "activates only after parent exit and package change (true)",
+          "tags every line of a multi-line script error with its attempt"
+        ],
+        "electron/update-prerequisites.test.ts": [
+          "a .cmd launcher path with cmd metacharacters is refused, not executed"
+        ],
+        "electron/local-gateway-python-native.test.ts": [
+          "native pipe tickets reuse one helper and revalidate every owner"
+        ],
+        "scripts/probe-prepared-native.test.mjs": [
+          "the Electron PTY probe exits after its shell despite ConPTY workers"
+        ]
+      },
+      "root": {
+        "bundle-smoke-metadata.test.mjs": [
+          "PowerShell admits only the pinned package and native slice",
+          "channel smoke binds the complete admitted request, not a commit-build identity or display version"
+        ]
+      }
+    },
+    "macos": {
+      "desktop": {
+        "scripts/mac-sign-cache.test.mjs": [
+          "native verification accepts only a Developer ID, timestamped, hardened signature"
+        ],
+        "scripts/macos-sysroot-native.test.mjs": [
+          "builds both universal helpers under every SDK selection rung"
+        ]
+      },
+      "root": {
+        "bundle-smoke-metadata.test.mjs": [
+          "fresh-install provenance admits tagless commit stamps without relaxing update acceptance"
+        ]
+      }
+    }
+  },
+  "windows_install_update_files": [
+    "tests/e2e/core/windows_update/test_crash_cells.py",
+    "tests/e2e/core/windows_update/test_damaged_checkout.py",
+    "tests/e2e/core/windows_update/test_elevated_gateway_attach.py",
+    "tests/e2e/core/windows_update/test_fresh_install_update.py",
+    "tests/e2e/core/windows_update/test_gateway_across_update.py",
+    "tests/e2e/core/windows_update/test_git_and_holders.py",
+    "tests/e2e/core/windows_update/test_interpreter.py",
+    "tests/e2e/core/windows_update/test_paths_and_acls.py",
+    "tests/e2e/core/windows_update/test_pause_custody.py",
+    "tests/e2e/core/windows_update/test_pause_durable.py",
+    "tests/e2e/core/windows_update/test_update_lock_tree.py",
+    "tests/e2e/core/windows_update/test_update_spares_other_installs.py",
+    "tests/e2e/core/windows_update/test_upgrade_over_old_gateway.py"
   ]
 }
