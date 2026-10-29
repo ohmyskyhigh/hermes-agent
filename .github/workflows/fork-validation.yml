@@ -122,7 +122,9 @@ jobs:
         run: |
           export HERMES_TEST_PYTHON="$HERMES_PYTHON"
           desktop=(); while IFS= read -r file; do desktop+=("$file"); done < "$RUNNER_TEMP/native-js-evidence/desktop-files.txt"
-          npm run --prefix apps/desktop test:desktop:platforms -- --maxWorkers=2 --retry=0 \
+          # Cold certificate checks and SDK provisioning must not compete for
+          # this host's two cores while their original per-test deadlines run.
+          npm run --prefix apps/desktop test:desktop:platforms -- --maxWorkers=1 --retry=0 \
             --reporter=json --outputFile="$RUNNER_TEMP/native-js-evidence/desktop.json" "${desktop[@]}"
           root=(); while IFS= read -r file; do root+=("$file"); done < "$RUNNER_TEMP/native-js-evidence/root-files.txt"
           npm run --prefix tests-js test -- --retry=0 --reporter=json \
