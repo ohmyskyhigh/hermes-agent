@@ -645,26 +645,28 @@ function runLocalWindowsCommand(command, stdinData, environment = process.env, c
 }
 
 test.skipIf(process.platform !== 'win32')('Windows platform probe executes in real PowerShell', async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-probe-'))
+  const tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-probe-')))
   const hermesPath = path.join(tempDir, 'hermes.exe')
 
   try {
     fs.writeFileSync(hermesPath, '')
     fs.writeFileSync(path.join(tempDir, 'python.exe'), '')
 
-    const result = await probeWindowsRemote(
-      {
-        exec: (command: string, options: SshExecOptions = {}) => runLocalWindowsCommand(command, options.stdinData, {
-          ...process.env, HERMES_HOME: tempDir, LOCALAPPDATA: tempDir, USERPROFILE: tempDir, HOME: tempDir,
-          PATH: [path.join(process.env.SystemRoot!, 'System32'), path.join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0')].join(path.delimiter)
-        }, tempDir)
-      },
-      hermesPath
-    )
+    for (const explicitPath of [hermesPath, hermesPath.replace(/\\/g, '/')]) {
+      const result = await probeWindowsRemote(
+        {
+          exec: (command: string, options: SshExecOptions = {}) => runLocalWindowsCommand(command, options.stdinData, {
+            ...process.env, HERMES_HOME: tempDir, LOCALAPPDATA: tempDir, USERPROFILE: tempDir, HOME: tempDir,
+            PATH: [path.join(process.env.SystemRoot!, 'System32'), path.join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0')].join(path.delimiter)
+          }, tempDir)
+        },
+        explicitPath
+      )
 
-    assert.equal(result.os, 'Windows')
-    assert.equal(result.hermesPath, hermesPath)
-    assert.equal(result.python, path.join(tempDir, 'python.exe'))
+      assert.equal(result.os, 'Windows')
+      assert.equal(result.hermesPath, hermesPath)
+      assert.equal(result.python, path.join(tempDir, 'python.exe'))
+    }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
   }

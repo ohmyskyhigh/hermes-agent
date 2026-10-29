@@ -9,6 +9,10 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from hermes_platform.resolver import locate_command
+
 
 def summarize(output: str, returncode: int) -> dict:
     match = re.search(r"=== Summary: (\d+) files, (\d+) tests passed, (\d+) failed([^\n]*)", output)
@@ -34,9 +38,13 @@ def selected_files(policy: dict, platform: str, root: Path) -> list[str]:
 
 
 def verify_checkout(root: Path, expected_commit: str) -> str:
+    resolution = locate_command("git")
+    if not resolution.found:
+        raise ValueError("Git is unavailable for candidate verification")
+
     def git(*args):
         return subprocess.check_output(
-            ["git", "-C", str(root), *args], text=True, encoding="utf-8", timeout=30).strip()
+            [*resolution.command, "-C", str(root), *args], text=True, encoding="utf-8", timeout=30).strip()
 
     if git("rev-parse", "HEAD") != expected_commit or git("status", "--porcelain=v1"):
         raise ValueError("candidate SHA changed or checkout is dirty")
