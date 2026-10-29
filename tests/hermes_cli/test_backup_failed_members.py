@@ -62,4 +62,3 @@ class TestFailedZipMemberRecovery:
         assert newest is not None and newest.exists()
         assert good.exists(), "a complete run pruned complete backups in favour of salvage"
         assert len(list(backup_dir.glob("pre-update-*.incomplete.zip"))) == 1
-

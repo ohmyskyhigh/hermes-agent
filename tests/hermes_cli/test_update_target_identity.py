@@ -32,6 +32,9 @@ def update_tree(tmp_path, monkeypatch):
         return subprocess.run(argv, check=kwargs.pop('check', False), **kwargs)
 
     monkeypatch.setattr(update_custody, 'run', execute_git)
+    # macOS fetches use the owner-watch adapter rather than run(); keep the
+    # injected Git faults at the same execution boundary on that host.
+    monkeypatch.setattr(update_custody, '_run_owner_watched', lambda argv, kw: execute_git(argv, **kw))
     monkeypatch.setenv('GIT_CONFIG_GLOBAL', str(tmp_path / 'git-config'))
     monkeypatch.setenv('GIT_CONFIG_NOSYSTEM', '1')
     monkeypatch.setenv('GIT_ALLOW_PROTOCOL', 'file')
