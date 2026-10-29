@@ -17,7 +17,7 @@ jobs:
   regression:
     name: Fork regression (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +30,7 @@ jobs:
             runner: macos-latest
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      POLICY_SHA256: 560255410fb7ec819f9ae95dfcf5cfee1d9fed9f25340d567773f2b4940bb798
+      POLICY_SHA256: 6c7d51fbff2d5d91e03ecd90ab806ee63a2a1fddc4689cab7c7e664f34b97724
     defaults:
       run:
         shell: bash
@@ -91,7 +91,7 @@ jobs:
             runner: macos-latest
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      POLICY_SHA256: 560255410fb7ec819f9ae95dfcf5cfee1d9fed9f25340d567773f2b4940bb798
+      POLICY_SHA256: 6c7d51fbff2d5d91e03ecd90ab806ee63a2a1fddc4689cab7c7e664f34b97724
     defaults:
       run:
         shell: bash

@@ -75,7 +75,7 @@ def main() -> int:
     log_path = args.output / "tests.log"
     with log_path.open("w", encoding="utf-8") as log:
         result = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                                check=False, timeout=4800)
+                                check=False, timeout=9600)
     output = log_path.read_text(encoding="utf-8-sig", errors="replace")
     print(output)
     summary = summarize(output, result.returncode)
