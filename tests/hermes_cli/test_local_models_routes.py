@@ -12,6 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
+from http.server import ThreadingHTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,18 @@ from fastapi.testclient import TestClient
 # The real loopback range server (shared with tests/pm): importing the
 # fixture name at module scope registers it for these tests too.
 from tests.pm._range_server import dl_server, url as _srv_url
+
+
+class _JoinedRangeServer(ThreadingHTTPServer):
+    # All range readers are gone before the next test resets the shared handler.
+    daemon_threads = False
+
+
+@pytest.fixture(autouse=True)
+def _parallel_range_requests(monkeypatch):
+    # Download opens eight ranges: a single-thread peer queues their headers behind
+    # the deliberately throttled body, turning pause into an unrelated socket wait.
+    monkeypatch.setattr("tests.pm._range_server.HTTPServer", _JoinedRangeServer)
 
 
 @pytest.fixture

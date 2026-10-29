@@ -27,6 +27,7 @@ at a closed port and no turn is submitted. Tests start it with :func:`run`.
 """
 import asyncio
 import errno
+import faulthandler
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,8 @@ import socket
 import subprocess
 import sys
 import traceback
+
+import psutil
 
 SEEDED_TOKEN = "seeded-browser-credential-from-an-earlier-0"  # 43 URL-safe characters
 INDEX = "<!doctype html><html><body>WEBAPP_BUNDLE</body></html>"
@@ -47,7 +50,7 @@ def free_port() -> int:
 
 def run(tmp_path, spec) -> dict:
     """Run this peer for *spec* in a fresh home under *tmp_path*; returns its receipt."""
-    from tests.gateway.fixtures.local_recovery_probe import child_env
+    from tests.gateway.fixtures.local_recovery_probe import child_env, seed_offline_models_dev
 
     root = Path(__file__).resolve().parents[3]
     home, user = tmp_path / "state", tmp_path / "user"
@@ -56,10 +59,34 @@ def run(tmp_path, spec) -> dict:
     env = child_env()
     env.update(HOME=str(user), USERPROFILE=str(user), HERMES_HOME=str(home), PYTHONPATH=str(root),
                PYTHONUNBUFFERED="1")
-    result = subprocess.run([sys.executable, __file__, json.dumps(spec)], cwd=root, env=env,
-                            capture_output=True, text=True, timeout=120, check=False)
+    seed_offline_models_dev(home)
     receipt = home / "receipt.json"
-    assert result.returncode == 0, result.stdout + result.stderr + (receipt.read_text() if receipt.exists() else "")
+    # File-backed output has no EOF dependency on a Windows venv redirector's child.
+    with (tmp_path / "peer.log").open("w+", encoding="utf-8") as log:
+        peer = subprocess.Popen([sys.executable, __file__, json.dumps(spec)], cwd=root, env=env,
+                                stdout=log, stderr=subprocess.STDOUT)
+        try:
+            peer.wait(timeout=120)
+        except subprocess.TimeoutExpired as exc:
+            log.flush()
+            log.seek(0)
+            raise AssertionError("listener peer exceeded its 120s budget:\n" + log.read()) from exc
+        finally:
+            if peer.poll() is None:
+                children = psutil.Process(peer.pid).children(recursive=True)
+                for child in reversed(children):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                peer.kill()
+                _, alive = psutil.wait_procs(children, timeout=10)
+                assert not alive, f"listener fixture children survived: {alive}"
+            peer.wait(timeout=10)
+        log.flush()
+        log.seek(0)
+        details = log.read()
+    assert peer.returncode == 0, details + (receipt.read_text() if receipt.exists() else "")
     return json.loads(receipt.read_text())
 
 
@@ -316,11 +343,14 @@ async def probe(spec):
 
 def main():
     receipt = Path(os.environ["HERMES_HOME"]) / "receipt.json"
+    faulthandler.dump_traceback_later(90)
     try:
         receipt.write_text(json.dumps(asyncio.run(probe(json.loads(sys.argv[1])))))
     except BaseException:
         receipt.write_text(json.dumps({"error": traceback.format_exc()}))
         raise SystemExit(1)
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == "__main__":

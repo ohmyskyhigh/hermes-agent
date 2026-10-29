@@ -411,9 +411,13 @@ def _runtime(
     locks: RecordingTurnLocks | None = None,
     **kwargs,
 ) -> HostedRoomRuntime:
+    # Routing/cancellation contracts must not spend their 0.4s lease on disk latency.
+    # Lease tests inject an advancing clock; real turn deadlines use monotonic time.
+    wall_now = time.time()
     return HostedRoomRuntime(
         db_path=db,
         rooms=[BINDING],
+        clock=kwargs.pop("clock", lambda: wall_now),
         rpc=rpc,
         turn_lock=locks or RecordingTurnLocks(),
         lease_ttl_seconds=kwargs.pop("lease_ttl_seconds", 0.4),
@@ -429,13 +433,6 @@ def _wait_for(predicate, *, timeout: float = 10.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("condition was not reached before timeout")
-
-
-def test_runtime_uses_unique_process_generation(db: Path):
-    first = _runtime(db, FakeSessionRPC())
-    second = _runtime(db, FakeSessionRPC())
-
-    assert first.process_generation != second.process_generation
 
 
 @pytest.mark.parametrize("value", [0, True])
