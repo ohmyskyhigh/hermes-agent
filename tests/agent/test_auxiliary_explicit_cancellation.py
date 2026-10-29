@@ -191,8 +191,16 @@ def test_codex_silent_stream_is_isolated_without_closing_shared_client() -> None
     stream.close()
 
 
-def test_cancelled_codex_orphan_timeout_preserves_cached_shared_client() -> None:
+def test_cancelled_codex_orphan_timeout_preserves_cached_shared_client(monkeypatch) -> None:
     """A cancelled Codex worker's delayed timer owns only its event stream."""
+    allow_timeout = threading.Event()
+    real_fire = aux._CodexStreamGuard._watchdog_fire
+
+    def fire_after_concurrent_user(guard):
+        assert allow_timeout.wait(timeout=5), "timer barrier was never released"
+        real_fire(guard)
+
+    monkeypatch.setattr(aux._CodexStreamGuard, "_watchdog_fire", fire_after_concurrent_user)
     owner_started = threading.Event()
 
     class _SilentOwnerStream:
@@ -294,6 +302,7 @@ def test_cancelled_codex_orphan_timeout_preserves_cached_shared_client() -> None
 
         # Let the orphan's real adapter timer fire. It may close the attempt's
         # event stream to wake that worker, but never the process-shared client.
+        allow_timeout.set()
         assert owner_stream.closed.wait(timeout=1)
         time.sleep(0.03)
         assert not real_client.closed.is_set()
@@ -306,6 +315,7 @@ def test_cancelled_codex_orphan_timeout_preserves_cached_shared_client() -> None
         )
         assert successive.choices[0].message.content == "ok"
     finally:
+        allow_timeout.set()
         owner_stream.close()
         with aux._client_cache_lock:
             aux._client_cache.clear()

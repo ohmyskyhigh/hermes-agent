@@ -132,7 +132,7 @@ def check_requirements():
 registry.register(
     name="feishu_attachment", toolset="feishu_attachment",
     schema={"name": "feishu_attachment", "description": (
-        "List or recover attachments already received in this Feishu conversation and topic. "
+        "List or recover received attachments in this Feishu topic. "
         "Recovery without an id uses the latest received attachment. Does not search other chats or messages."),
         "parameters": {"type": "object", "additionalProperties": False,
                        "properties": {

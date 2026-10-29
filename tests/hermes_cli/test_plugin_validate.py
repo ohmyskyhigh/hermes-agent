@@ -47,6 +47,7 @@ def _portable_plugin(root: Path, servers: dict, declarations: dict) -> Path:
 
 
 def test_portable_validation_fails_orphan_and_reports_availability(tmp_path: Path) -> None:
+    from hermes_platform.host import facts
     orphan = _portable_plugin(
         tmp_path / "orphan",
         {},
@@ -61,13 +62,13 @@ def test_portable_validation_fails_orphan_and_reports_availability(tmp_path: Pat
         tmp_path / "declared",
         {"worker": {"type": "stdio", "command": "python"}},
         {"worker": {
-            "app": {"darwin": {"presence": "executable", "location": str(app)}},
+            "app": {facts.os_family(): {"presence": "executable", "location": str(app)}},
             "requires": {"app": True},
         }},
     )
     report = validate_plugin_dir(declared)
     assert any(
-        name == "server availability: worker" and ok and detail in {"missing_app", "unsupported_os"}
+        name == "server availability: worker" and ok and detail.split(", ", 1)[0] == "missing_app"
         for name, ok, detail in report.checks
     )
 

@@ -107,7 +107,8 @@ def test_migration_writes_keychain_verifies_then_removes_the_file_and_back(home,
 
     assert store.migrate_key("file") == "file"
     assert key_file.read_bytes().strip() == old_key
-    assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+    # Windows chmod/stat expose a synthesized writable mode, not the file DACL.
+    assert stat.S_IMODE(key_file.stat().st_mode) == (0o666 if sys.platform == "win32" else 0o600)
     assert keychain.entries == {}
     assert VaultStore().resolve_secret(item)["password"] == _LOGIN["password"]
 
@@ -155,7 +156,7 @@ def test_keychain_mode_without_a_reachable_keychain_falls_back_to_the_key_file(h
         monkeypatch.setitem(sys.modules, "keyring", None)  # extra not installed: import fails
     item = _add(VaultStore())
     key_file = h / "vault" / "vault.key"
-    assert key_file.exists() and stat.S_IMODE(key_file.stat().st_mode) == 0o600
+    assert key_file.exists() and stat.S_IMODE(key_file.stat().st_mode) == (0o666 if sys.platform == "win32" else 0o600)
     assert not (h / "vault" / "vault.keyref").exists()
     assert VaultStore().resolve_secret(item)["password"] == _LOGIN["password"]
 

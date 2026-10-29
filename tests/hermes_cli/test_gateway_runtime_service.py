@@ -427,9 +427,9 @@ def test_native_task_query_uses_installed_xml_and_vendor_launcher(wrong, tmp_pat
     actual = subprocess.run
     calls = []
     def boundary(argv, **kw):
-        if argv[0] == 'whoami.exe':
+        if Path(argv[0]).name.casefold() == 'whoami.exe':
             return actual(argv, **kw)
-        assert argv[0] == 'schtasks.exe'
+        assert Path(argv[0]).name.casefold() == 'schtasks.exe'
         calls.append(argv)
         return actual([sys.executable, str(peer), *argv[1:]], **kw)
     monkeypatch.setattr(subprocess, 'run', boundary)
@@ -551,6 +551,7 @@ def test_s6_command_timeout_ends_at_the_runtime_deadline(tmp_path, monkeypatch):
         service.start_existing_gateway_service(stopped, deadline=time.monotonic() + 5)
 
 
+@pytest.mark.platforms("windows")
 def test_windows_startup_folder_entry_still_restarts_a_stopped_owner(tmp_path, monkeypatch):
     """The Startup-folder fallback is login persistence only (no start verb, no identity): with it
     present and no Scheduled Task registered, ensure takes the same detached direct spawn manual
@@ -565,9 +566,9 @@ def test_windows_startup_folder_entry_still_restarts_a_stopped_owner(tmp_path, m
     startup.mkdir()
     (startup / f"Hermes_Gateway_{service.service_suffix(home)}.vbs").write_text("' fallback\r\n")
     monkeypatch.setattr(gateway_windows, "_startup_dir", lambda: startup)
+    monkeypatch.setattr(gateway_windows, "_query_scheduled_task_xml", lambda _name: "")
     queries, spawned = [], []
     monkeypatch.setattr(service, "_run", lambda argv, *a, **k: queries.append(argv) or SimpleNamespace(returncode=0, stdout=b""))
-    monkeypatch.setattr(service.sys, "platform", "win32")
     monkeypatch.setattr(runtime, "discover_gateway_endpoint", lambda *a, **k: runtime.GatewayDiscovery("absent"))
     monkeypatch.setattr(start, "spawn_unmanaged_gateway", lambda target, **k: spawned.append(Path(target)))
     result = runtime.ensure_gateway_runtime(home, timeout=0.3)

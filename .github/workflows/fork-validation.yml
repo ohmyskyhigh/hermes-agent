@@ -47,7 +47,7 @@ jobs:
       - name: Set up locked dependencies without production configuration
         uses: ./.github/actions/setup-pm
         with:
-          extras: '["feishu", "messaging", "telegram"]'
+          extras: '["acp", "feishu", "keychain", "messaging", "telegram"]'
           test-environment: 'true'
       - name: Canonical static checks
         if: runner.os == 'Linux'
