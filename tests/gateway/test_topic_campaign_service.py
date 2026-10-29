@@ -153,6 +153,7 @@ async def test_pause_rejects_already_queued_supervisor_turn(setup):
     message = event()
     await service.intake(message, message.source)
     pause = event(text="暂停 Campaign")
+    pause.message_id = "om_pause"
     handled, reply = await service.intake(pause, pause.source)
     assert handled and "已暂停" in reply
     message.internal = True

@@ -1,0 +1,94 @@
+name: Fork validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Fork regression (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+          - platform: windows
+            runner: windows-latest
+    env:
+      HERMES_HOME: ${{ runner.temp }}/fork-home
+      HERMES_RUNTIME_DIR: ${{ runner.temp }}/fork-runtime
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      POLICY_SHA256: 53fb9406eed749d4291114578059e63334dffe080482569a0e1dfccc2e9a4c25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up locked dependencies without production configuration
+        uses: ./.github/actions/setup-pm
+        with:
+          extras: '["feishu", "messaging", "telegram"]'
+          test-environment: 'true'
+      - name: Canonical static checks
+        if: runner.os == 'Linux'
+        run: '"$HERMES_PYTHON" scripts/check'
+      - name: Verify exact candidate and run externally pinned regression list
+        run: |
+          "$HERMES_PYTHON" scripts/ci/fork_validation.py --bash "$BASH" \
+            --platform '${{ matrix.platform }}' --expected-commit "$EXPECTED_SHA" \
+            --policy-sha256 "$POLICY_SHA256" --output "$RUNNER_TEMP/fork-evidence" --jobs 4
+      - name: Upload exact-SHA evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fork-validation-${{ matrix.platform }}-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/fork-evidence
+          if-no-files-found: error
+      - uses: ./.github/actions/check-clean-worktree
+
+  javascript:
+    uses: ./.github/workflows/js-tests.yml
+    with:
+      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  windows-install-update:
+    uses: ./.github/workflows/windows-install-update-e2e.yml
+    with:
+      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+      strict_acceptance: '1'
+
+  required:
+    name: Fork required validation
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [regression, javascript, windows-install-update]
+    steps:
+      - name: Require every lane to complete successfully
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          bad = {name: value['result'] for name, value in results.items() if value['result'] != 'success'}
+          if bad:
+              raise SystemExit(f'Required lanes did not all pass: {bad}')
+          print('All required lanes completed successfully on the pinned candidate.')
+          PY

@@ -61,7 +61,7 @@ def test_unavailable_binding_preserves_default_naming(relocated_home, monkeypatc
 
 
 def test_similarly_named_foreign_launcher_does_not_claim_home(relocated_home, monkeypatch):
-    native, moved = relocated_home
+    _native, moved = relocated_home
     foreign = moved.with_name(moved.name + "-other")
     foreign.mkdir()
     monkeypatch.setattr(w, "_exec_schtasks", lambda args, **kwargs: (0, task_xml(foreign), ""))
@@ -71,7 +71,7 @@ def test_similarly_named_foreign_launcher_does_not_claim_home(relocated_home, mo
 
 @pytest.mark.parametrize("change", ["extra_action", "foreign_command", "foreign_script"])
 def test_only_exact_single_gateway_launcher_can_bind_home(relocated_home, monkeypatch, change):
-    native, moved = relocated_home
+    _native, moved = relocated_home
     xml = task_xml(moved)
     replacements = {
         "extra_action": ("</Actions>", "<ComHandler /></Actions>"),

@@ -72,7 +72,7 @@ def _recover(store, record, scope, settings):
             resource_type=ref["resource_type"], filename=ref["file_name"], media_hint=ref["media_hint"],
             cache_dir=store.cache_dir, max_bytes=_max_bytes())
         store.save({**ref, "state": result["state"]}, result)
-    except Exception:
+    except Exception:  # health: allow BLE001 -- SDK exceptions can contain secrets; persist only a fixed failure code
         store.save({**ref, "state": "failed"}, {"state": "failed", "error_kind": "download_failed", "retryable": True})
     return store.get(record["attachment_id"], **scope)
 
@@ -91,7 +91,7 @@ def feishu_attachment(action="list", id=None, limit=10) -> str:
 
     try:
         settings = _settings()
-    except Exception:
+    except Exception:  # health: allow BLE001 -- redact arbitrary credential-bearing SDK/config failures
         # SDK/config exceptions may contain credential values; never echo them.
         return _error("configuration_unavailable")
     scope = dict(app_id=settings.app_id, chat_id=get_session_env("HERMES_SESSION_CHAT_ID"),
@@ -99,7 +99,7 @@ def feishu_attachment(action="list", id=None, limit=10) -> str:
     try:
         store = AttachmentStore(get_hermes_home())
         return _perform(action, id, limit, settings, scope, store)
-    except Exception:
+    except Exception:  # health: allow BLE001 -- tool boundary exposes only a fixed failure code, never private storage data
         return _error("storage_unavailable", True)
 
 

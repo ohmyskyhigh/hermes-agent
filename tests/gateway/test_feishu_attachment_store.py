@@ -165,22 +165,24 @@ def test_reads_hide_invalid_cache_paths(tmp_path, damage):
     result = ready(path)
     attachment_id = store.save(ref(state="ready"), result)
     assert store.get(attachment_id, "cli_test", "oc_test")["result"]["path"] == str(path)
-    if damage == "missing":
-        path.unlink()
-    elif damage == "size":
-        path.write_bytes(b"longer sample")
-    elif damage == "hash":
-        path.write_bytes(b"TAMPER")
-    elif damage == "directory":
+    def directory():
         path.unlink()
         path.mkdir()
-    elif damage == "outside":
-        outside = tmp_path / "outside.mp4"
-        outside.write_bytes(b"sample")
-        store.save(ref(state="ready"), ready(outside))
-    else:
-        result["path"] = "clip.mp4"
-        store.save(ref(state="ready"), result)
+
+    def outside():
+        external = tmp_path / "outside.mp4"
+        external.write_bytes(b"sample")
+        store.save(ref(state="ready"), ready(external))
+
+    def relative():
+        store.save(ref(state="ready"), {**result, "path": "clip.mp4"})
+
+    damage_cache = {
+        "missing": path.unlink, "size": lambda: path.write_bytes(b"longer sample"),
+        "hash": lambda: path.write_bytes(b"TAMPER"), "directory": directory,
+        "outside": outside, "relative": relative,
+    }
+    damage_cache[damage]()
     record = store.get(attachment_id, "cli_test", "oc_test")
     assert record["result"]["state"] == "failed"
     assert record["result"]["path"] == ""

@@ -258,16 +258,16 @@ def test_recover_cannot_route_an_id_outside_current_scope(environment, monkeypat
     env = environment
     attachment_id = env.store.save(ref())
     monkeypatch.setattr(adapter, "_build_lark_client", lambda *args: pytest.fail("out-of-scope client construction"))
-    home_token = None
-    if scope == "chat":
-        env.values["HERMES_SESSION_CHAT_ID"] = "oc_other"
-    elif scope == "thread":
-        env.values["HERMES_SESSION_THREAD_ID"] = "omt_other"
-    elif scope == "app":
-        env.secrets["FEISHU_APP_ID"] = "cli_other"
-    elif scope == "profile":
-        home_token = set_hermes_home_override(env.home / "other_profile")
-    else:
+    replacements = {
+        "chat": (env.values, "HERMES_SESSION_CHAT_ID", "oc_other"),
+        "thread": (env.values, "HERMES_SESSION_THREAD_ID", "omt_other"),
+        "app": (env.secrets, "FEISHU_APP_ID", "cli_other"),
+    }
+    if scope in replacements:
+        values, key, replacement = replacements[scope]
+        values[key] = replacement
+    home_token = set_hermes_home_override(env.home / "other_profile") if scope == "profile" else None
+    if scope == "unknown":
         attachment_id = "0" * 64
     try:
         output = json.loads(tool_module().feishu_attachment(action="recover", id=attachment_id))

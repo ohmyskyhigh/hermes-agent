@@ -1,5 +1,6 @@
 """A Windows data-directory junction must preserve local session IDs after a move."""
 import json
+import asyncio
 import subprocess
 from types import SimpleNamespace
 
@@ -21,8 +22,9 @@ async def test_junction_receipt_recovers_without_rewriting_history(tmp_path, mon
     home = tmp_path / 'current'
     home.mkdir()
     alias = tmp_path / 'old-location'
-    subprocess.run(['cmd.exe', '/c', 'mklink', '/J', str(alias), str(home)],
-                   check=True, capture_output=True)
+    await asyncio.to_thread(
+        subprocess.run, ['cmd.exe', '/c', 'mklink', '/J', str(alias), str(home)],
+        check=True, capture_output=True)
     monkeypatch.setenv('HERMES_HOME', str(home))
     monkeypatch.setattr(run, '_load_gateway_config', lambda: {'platform_toolsets': {'cli': []}})
     import hermes_state

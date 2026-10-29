@@ -43,10 +43,11 @@ def service_suffix(home: Path) -> str:
     custom root can never resolve to the production ``hermes-gateway`` unit.
     """
     from hermes_constants import account_default_hermes_home
-    from hermes_cli.gateway import _home_owns_bare_service_name, _profile_name_from_home
+    from hermes_cli.gateway import _profile_name_from_home
+    from hermes_cli.gateway_service_identity import home_owns_bare_service_name
     default = account_default_hermes_home().resolve()
     home = home.resolve()
-    owns_bare = _home_owns_bare_service_name(home) if sys.platform == "win32" else home == default
+    owns_bare = home_owns_bare_service_name(home) if sys.platform == "win32" else home == default
     if owns_bare:
         return ""
     root = default

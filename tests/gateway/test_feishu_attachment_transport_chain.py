@@ -76,7 +76,7 @@ async def test_transport_failure_survives_durable_and_recovers_in_same_thread(tm
                                       {'tag': 'text', 'text': 'Please inspect this video'},
                                       {'tag': 'media', 'file_key': 'file_chain', 'image_key': 'img_cover'}]]}))
         refs = []
-        text, kind, paths, mime_types, inlined, mentions = await adapter._extract_message_content(
+        text, kind, paths, mime_types, _inlined, _mentions = await adapter._extract_message_content(
             message, attachment_refs=refs, sender_id='ou_sender')
         assert 'Please inspect this video' in text and 'feishu_attachment' in text
         assert paths == [] and refs[0]['state'] == 'failed'

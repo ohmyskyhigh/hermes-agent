@@ -19,6 +19,7 @@ import sys
 import textwrap
 import time
 from dataclasses import dataclass
+from hermes_cli.gateway_service_identity import home_owns_bare_service_name
 from pathlib import Path
 from hermes_cli import gateway_service_owner, setup_platforms
 
@@ -595,7 +596,7 @@ def _scan_gateway_pids(
     current_profile_name_lc = current_profile_name.lower()
     # ``_profile_arg`` is "" for ANY root, and get_default_hermes_root() calls a temp or Docker
     # HERMES_HOME "the root itself", so only the home owning the bare service name is the default one.
-    current_home_is_native = not current_profile_name and _home_owns_bare_service_name(current_home_path)
+    current_home_is_native = not current_profile_name and home_owns_bare_service_name(current_home_path)
 
     def _matches_current_profile(pid: int, command: str) -> bool:
         command_lc = command.lower().replace("\\", "/")
@@ -2256,16 +2257,6 @@ def _bare_unit_pinned_home() -> Path | None:
         return None
 
 
-def _home_owns_bare_service_name(home: Path) -> bool:
-    """True for the resolved ``home`` that owns the bare service name (see ``_profile_suffix``)."""
-    if is_windows():
-        from hermes_cli.gateway_windows_identity import bare_task_home
-        pinned = bare_task_home()
-        if pinned is not None:
-            return home == pinned
-    return home in _native_service_homes() or home == _bare_unit_pinned_home()
-
-
 def _profile_suffix() -> str:
     """Service-name suffix for HERMES_HOME: "" for a home that owns the bare name, the profile name for
     ``<root>/profiles/<name>``, else a short hash of the path.
@@ -2290,7 +2281,7 @@ def _profile_suffix() -> str:
     import hashlib
     from hermes_constants import get_default_hermes_root
     home = get_hermes_home().resolve()
-    if _home_owns_bare_service_name(home):
+    if home_owns_bare_service_name(home):
         return ""
     name = _profile_name_from_home(home, get_default_hermes_root().resolve())
     return name or hashlib.sha256(str(home).encode()).hexdigest()[:8]

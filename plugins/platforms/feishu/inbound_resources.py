@@ -102,7 +102,7 @@ def _download_with_retries(client, **kwargs):
             error = _DownloadFailure("network", "tls" if tls else "connection", not tls)
         except OSError:
             error = _DownloadFailure("filesystem")
-        except Exception:
+        except Exception:  # health: allow BLE001 -- redact unexpected credential-bearing download exceptions
             # Never return exception text: SDK/network errors can contain credentials.
             error = _DownloadFailure("internal")
         if not error.retryable or attempt == 3:
@@ -142,7 +142,7 @@ def _auth_from_client(client, deadline):
         raise _DownloadFailure(exc.error_kind, exc.error_code, exc.retryable) from None
     except httpx.HTTPError:
         raise
-    except Exception:
+    except Exception:  # health: allow BLE001 -- SDK auth failures must not expose credentials or tracebacks
         raise _DownloadFailure("authentication") from None
     return domain.rstrip("/"), token
 
