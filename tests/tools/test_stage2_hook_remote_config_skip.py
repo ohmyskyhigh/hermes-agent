@@ -40,16 +40,16 @@ def _run(home: Path, backend_env: str | None) -> str:
     bin_dir = root / "bin"  # s6-setuidgid is not a valid sh function name: stub it on PATH
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "s6-setuidgid"
-    stub.write_text('#!/bin/sh\nshift\ncase "$*" in *docker_config_migrate.py*) echo MIGRATE_RAN ;; *) exec "$@" ;; esac\n')
+    stub.write_text('#!/bin/sh\nshift\ncase "$*" in *docker_config_migrate.py*) echo MIGRATE_RAN ;; *) exec "$@" ;; esac\n', newline="")
     stub.chmod(0o755)
     venv_bin = root / "install" / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
     python = venv_bin / "python"  # a wrapper, not a symlink: a moved venv symlink loses its site-packages
-    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    python.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n', newline="")
     python.chmod(0o755)
     script = (
         "set -eu\n"
-        + f'PATH="{bin_dir}:$PATH"\nHERMES_HOME="{home}"\nINSTALL_DIR="{root / "install"}"\n'
+        + f'PATH="{_shell_path(bin_dir)}:$PATH"\nHERMES_HOME="{home.as_posix()}"\nINSTALL_DIR="{(root / "install").as_posix()}"\n'
         + _block()
     )
     proc = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=60,
@@ -57,6 +57,12 @@ def _run(home: Path, backend_env: str | None) -> str:
     assert proc.returncode == 0, proc.stderr
     assert "could not determine the config backend" not in proc.stdout, proc.stdout
     return proc.stdout
+
+
+def _shell_path(path: Path) -> str:
+    # A drive colon inside PATH is a separator in Git Bash, unlike in command arguments.
+    text = path.as_posix()
+    return f"/{text[0].lower()}{text[2:]}" if os.name == "nt" and path.drive else text
 
 
 def _runtime_selects(home: Path, backend_env: str | None) -> str:

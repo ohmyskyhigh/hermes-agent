@@ -184,7 +184,13 @@ class FileBackend:
     def version_path(path: Path) -> tuple[int, int, int, int]:
         st = path.stat()  # before the import: a missing file must not need the utils stack (PM runtime)
         from utils import file_signature
-        return file_signature(st)
+        signature = file_signature(st)
+        if os.name == "nt":
+            from hermes_platform.host.windows_files import file_change_time_ns
+            change = file_change_time_ns(path)
+            if change is not None:
+                signature = (*signature[:3], change)
+        return signature
 
     @staticmethod
     def read_path(path: Path) -> Any:
@@ -223,10 +229,12 @@ class FileBackend:
         # utils.file_cache_version's rule. ``version`` is config_version's opaque token, so the
         # racy test takes the file's own signature.
         from utils import file_cache_version, racy_content_digest
-        # Windows ctime is creation time: even a settled stat cannot detect a same-size
-        # in-place rewrite with a restored mtime. Keep the content signature there.
+        # Native Windows change time lets settled, unchanged files stay metadata-only.
+        # If it is unavailable, hash conservatively rather than pinning an older parse.
         if os.name == "nt":
-            return (*version, file_cache_version(self.config_path(home), always_digest=True)[-1])
+            from hermes_platform.host.windows_files import file_change_time_ns
+            if file_change_time_ns(self.config_path(home)) is None:
+                return (*version, file_cache_version(self.config_path(home), always_digest=True)[-1])
         return (*version, racy_content_digest(self.config_path(home), self.version(home)))
 
     def exists(self, home: Path) -> bool:

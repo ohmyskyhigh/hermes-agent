@@ -52,6 +52,7 @@ def coarse_clock(monkeypatch):
     import utils
     real, tick = utils.file_signature, time.time_ns()
     monkeypatch.setattr(utils, 'file_signature', lambda st: (tick, *real(st)[1:3], tick))
+    monkeypatch.setattr('hermes_platform.host.windows_files.file_change_time_ns', lambda _path: tick)
     clock = _Clock(tick)
     monkeypatch.setattr(utils, 'time', clock)
     return clock

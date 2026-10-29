@@ -856,7 +856,7 @@ def test_dangling_symlink_does_not_break_directory_listing(forced_files_client):
     real.write_text("still here")
 
     try:
-        (root / "dangling").symlink_to("/nix/store/nonexistent-broken-link-profile")
+        (root / "dangling").symlink_to(root.parent / "unmounted-store" / "nonexistent-broken-link-profile")
     except OSError:
         pytest.skip("filesystem does not allow symlinks")
 

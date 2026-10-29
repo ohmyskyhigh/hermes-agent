@@ -73,7 +73,9 @@ def test_a_short_lived_process_still_completes_its_due_prune(tmp_path):
     # shell (cwd in an idle entry, stays) -> wrapper (exits once the launcher does) -> launcher
     run = "import subprocess, sys; subprocess.run(sys.argv[1:], cwd={!r}, stdin=subprocess.DEVNULL, check=True)"
     wrapper = [sys.executable, "-c", run.format(str(tmp_path)), sys.executable, "-c", launcher, str(repo), str(routed)]
-    shell = [sys.executable, "-c", run.format(str(tmp_path)) + "; import time; time.sleep(120)", *wrapper]
+    # The stdlib-only shell must own its PID/cwd, rather than a Windows venv redirector.
+    shell_python = sys._base_executable if os.name == "nt" else sys.executable
+    shell = [shell_python, "-c", run.format(str(tmp_path)) + "; import time; time.sleep(120)", *wrapper]
     env = {**os.environ, "HERMES_HOME": str(launch)}
     user_shell = subprocess.Popen(shell, env=env, cwd=shell_entry / "sub", stdin=subprocess.DEVNULL)
     log_file = routed / "logs" / "scratch-prune.log"

@@ -918,7 +918,8 @@
     "tests/tui_gateway/test_completion_cwd_profile_fallback.py",
     "tests/tui_gateway/test_desktop_session_workspace_persistence.py",
     "tests/tui_gateway/test_session_cwd_follow.py",
-    "tests/tui_gateway/test_container_backend_workdir.py"
+    "tests/tui_gateway/test_container_backend_workdir.py",
+    "tests/hermes_platform/host/test_windows_files.py"
   ],
   "platform_test_files": {
     "linux": [],
