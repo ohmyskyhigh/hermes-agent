@@ -31,6 +31,8 @@ test.runIf(process.platform === 'win32')('the Electron PTY probe exits after its
     assert.equal(result.exitCode, 0)
     assert.match(result.marker, /^hermes-pty-/)
   } finally {
-    fs.rmSync(out, { recursive: true, force: true })
+    // ConPTY can release its filesystem handles just after the probe process exits.
+    // Bound the cleanup wait; a persistent handle leak still fails this test.
+    fs.rmSync(out, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
   }
 }, 30000)
