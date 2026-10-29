@@ -185,10 +185,11 @@
       "tests/hermes_cli/test_update_pause_debt_windows_live.py",
       "tests/hermes_cli/test_update_windows_cross_install_gateway.py",
       "tests/hermes_cli/test_update_windows_home_acl.py"
-    ]
+    ],
+    "macos": []
   },
   "skip_policy": [
-    "Off-host platforms markers are not coverage; the matching Linux/Windows job must execute the host-specific case.",
+    "Off-host platforms markers are not coverage; the matching Linux/Windows/macOS job must execute each host-specific case.",
     "Windows file-symlink privilege skip requires the corresponding symlink test to pass on Linux; no UAC bypass.",
     "Any other skip requires explicit review; skipped tests are never counted as executed success.",
     "Windows installer acceptance uses strict_acceptance=1, requires crash-cell evidence, and may not be replaced by unit tests."

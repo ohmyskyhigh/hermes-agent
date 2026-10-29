@@ -1,7 +1,7 @@
 # Fork validation before merging local customizations
 
 The `fork-validation.yml` workflow validates a fixed pull-request head on standard
-GitHub-hosted Linux and Windows runners. It does not deploy Hermes, merge upstream,
+GitHub-hosted Linux, Windows and macOS runners. It does not deploy Hermes, merge upstream,
 publish releases, sign artifacts, or load production credentials.
 
 The required test selection is `scripts/ci/fork_required_tests.json`. Its initial
@@ -27,7 +27,8 @@ Blacksmith runner selection.
 `Fork required validation` succeeds only if every prerequisite job completed
 with `success`. Queued, missing, cancelled, timed-out, skipped and failed jobs do
 not satisfy it. Per-test platform skips remain in the evidence: a Windows-only
-case needs actual Windows execution, and a file-symlink privilege skip on Windows
+case needs actual Windows execution, a macOS-only case needs macOS execution,
+and a file-symlink privilege skip on Windows
 requires execution of the same contract on Linux. Other skips require review.
 This selection is not the entire repository test suite.
 

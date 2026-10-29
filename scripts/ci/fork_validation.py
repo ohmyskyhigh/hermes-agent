@@ -33,9 +33,19 @@ def selected_files(policy: dict, platform: str, root: Path) -> list[str]:
     return files
 
 
+def verify_checkout(root: Path, expected_commit: str) -> str:
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(root), *args], text=True, encoding="utf-8", timeout=30).strip()
+
+    if git("rev-parse", "HEAD") != expected_commit or git("status", "--porcelain=v1"):
+        raise ValueError("candidate SHA changed or checkout is dirty")
+    return git("rev-parse", "HEAD^{tree}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--platform", choices=("linux", "windows"), required=True)
+    parser.add_argument("--platform", choices=("linux", "windows", "macos"), required=True)
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--policy-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -43,10 +53,7 @@ def main() -> int:
     parser.add_argument("--bash", required=True, help="Canonical runner shell supplied by the invoking host")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
-    head = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=root, text=True, encoding="utf-8", timeout=30).strip()
-    if head != args.expected_commit:
-        raise ValueError("checkout does not match the approved candidate SHA")
+    tree = verify_checkout(root, args.expected_commit)
     policy_bytes = (root / "scripts/ci/fork_required_tests.json").read_bytes()
     if hashlib.sha256(policy_bytes).hexdigest() != args.policy_sha256:
         raise ValueError("test manifest differs from the external maintenance policy")
@@ -57,14 +64,19 @@ def main() -> int:
     file_list.write_text("\n".join(files) + "\n", encoding="utf-8")
     command = [args.bash, "scripts/run_tests.sh", "--files-from", str(file_list.resolve()),
                "-j", str(args.jobs), "--file-retries", "0", "--file-timeout", "600"]
-    result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace", check=False, timeout=4800)
-    (args.output / "tests.log").write_text(result.stdout, encoding="utf-8")
-    print(result.stdout)
-    summary = summarize(result.stdout, result.returncode)
+    log_path = args.output / "tests.log"
+    with log_path.open("w", encoding="utf-8") as log:
+        result = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
+                                check=False, timeout=4800)
+    output = log_path.read_text(encoding="utf-8-sig", errors="replace")
+    print(output)
+    summary = summarize(output, result.returncode)
     if summary["files"] != len(files):
         raise ValueError("canonical runner did not execute the complete required file selection")
-    evidence = {"commit": head, "policy_sha256": args.policy_sha256, "platform": args.platform,
+    if verify_checkout(root, args.expected_commit) != tree:
+        raise ValueError("candidate tree changed during validation")
+    evidence = {"commit": args.expected_commit, "tree": tree,
+                "policy_sha256": args.policy_sha256, "platform": args.platform,
                 "required_files": files, "summary": summary,
                 "skip_policy": policy["skip_policy"], "full_repository_suite": False}
     (args.output / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")

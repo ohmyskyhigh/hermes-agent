@@ -26,9 +26,11 @@ jobs:
             runner: ubuntu-latest
           - platform: windows
             runner: windows-latest
+          - platform: macos
+            runner: macos-latest
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      POLICY_SHA256: 53fb9406eed749d4291114578059e63334dffe080482569a0e1dfccc2e9a4c25
+      POLICY_SHA256: 8d651b98a6d948d6d71061c709583419c967bc5efd297a2f07ea93b9bfe32313
     defaults:
       run:
         shell: bash
