@@ -30,7 +30,7 @@ jobs:
             runner: macos-latest
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      POLICY_SHA256: d90fc69b4e010e691371ef445587aa131bebc949fff13cb2dad3e865c0369783
+      POLICY_SHA256: f318d72f835620a10758df48b956af634c25477c1a8ad406c9810cb7312b4f25
     defaults:
       run:
         shell: bash
@@ -91,7 +91,7 @@ jobs:
             runner: macos-latest
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      POLICY_SHA256: d90fc69b4e010e691371ef445587aa131bebc949fff13cb2dad3e865c0369783
+      POLICY_SHA256: f318d72f835620a10758df48b956af634c25477c1a8ad406c9810cb7312b4f25
     defaults:
       run:
         shell: bash

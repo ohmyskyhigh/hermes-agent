@@ -925,7 +925,8 @@
     "tests/gateway/test_api_admission_queued_on_drain.py",
     "tests/gateway/test_busy_wake_admission.py",
     "tests/gateway/test_session_authority.py",
-    "tests/gateway/test_local_producer_admission.py"
+    "tests/gateway/test_local_producer_admission.py",
+    "tests/tui_gateway/test_prompt_submit_truncation.py"
   ],
   "platform_test_files": {
     "linux": [],
