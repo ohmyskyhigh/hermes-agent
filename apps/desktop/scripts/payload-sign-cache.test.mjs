@@ -3,13 +3,26 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { expect, test, vi } from 'vitest'
+import { beforeAll, expect, test, vi } from 'vitest'
 import { batchSignBinaries } from './batch-sign-binaries.mjs'
 import { ensureWindowsBundleTools } from './windows-bundle-tools.mjs'
 import { createPayloadSignCache, peContentHash, verifySignedPayloads } from './payload-sign-cache.mjs'
 import { readSecurityDirectory } from './sanitize-pe-signatures.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
+
+let nativePublisher = ''
+beforeAll(async () => {
+  if (process.platform !== 'win32') return
+  // Resolve the host's real signing fixture and warm Windows' certificate/CRL cache before
+  // the cache-behaviour deadline starts. Preparation must itself pass live verification.
+  nativePublisher = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '(Get-AuthenticodeSignature -LiteralPath $env:NATIVE_SIGN_TEST_INPUT).SignerCertificate.Subject'
+  ], { encoding: 'utf8', windowsHide: true, timeout: 30000,
+    env: { ...process.env, NATIVE_SIGN_TEST_INPUT: process.execPath } }).trim()
+  expect(nativePublisher).not.toBe('')
+  expect(await verifySignedPayloads([process.execPath], nativePublisher)).toEqual(new Set([process.execPath]))
+}, 60000)
 
 // Minimal PE input for byte-binding tests, not a signature-validity fixture.
 function pe(marker = 1) {
@@ -48,9 +61,7 @@ function fixture() {
 test.runIf(process.platform === 'win32')('native verification binds cached bytes to the publisher and timestamp', async () => {
   const f = fixture()
   try {
-    const publisher = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      '(Get-AuthenticodeSignature -LiteralPath $env:NATIVE_SIGN_TEST_INPUT).SignerCertificate.Subject'
-    ], { encoding: 'utf8', windowsHide: true, env: { ...process.env, NATIVE_SIGN_TEST_INPUT: process.execPath } }).trim()
+    const publisher = nativePublisher
     expect(publisher).not.toBe('')
     const files = ['original.exe', 'renamed.dll'].map(name => path.join(f.root, name))
     for (const file of files) fs.copyFileSync(process.execPath, file)
