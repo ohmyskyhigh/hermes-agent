@@ -108,9 +108,12 @@ def _server_module():
 
 
 def _legacy_runtime(db: Path, rpc: HostedRoomServerRPC) -> HostedRoomRuntime:
+    # These tests exercise route/attachment contracts. Disk and image imports must not
+    # advance a synthetic short lease; lease-expiry tests drive their own clocks.
+    now = time.time()
     return HostedRoomRuntime(
         db_path=db, rooms=[BINDING], rpc=rpc, turn_lock=RecordingTurnLocks(),
-        lease_ttl_seconds=0.4, poll_interval_seconds=0.01)
+        lease_ttl_seconds=0.4, poll_interval_seconds=0.01, clock=lambda: now)
 
 
 class DispatchingPeerClient:
@@ -137,6 +140,7 @@ class DispatchingPeerClient:
 
 
 def _peer_runtime(db: Path, client: DispatchingPeerClient) -> HostedRoomRuntime:
+    now = time.time()
     route = PeerMemberRoute(
         home_install_id="install-home", member_id="member-ops", target_install_id="install-peer",
         target_profile=PROFILE, capability_digest="a" * 64, execution_policy_digest="b" * 64,
@@ -151,7 +155,7 @@ def _peer_runtime(db: Path, client: DispatchingPeerClient) -> HostedRoomRuntime:
 
     return HostedRoomRuntime(
         db_path=db, rooms=[BINDING], transport_resolver=resolve, turn_lock=RecordingTurnLocks(),
-        lease_ttl_seconds=0.4, poll_interval_seconds=0.01)
+        lease_ttl_seconds=0.4, poll_interval_seconds=0.01, clock=lambda: now)
 
 
 def _assert_refused_as_proven_failure(task: dict, runtime: HostedRoomRuntime) -> None:

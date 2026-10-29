@@ -350,7 +350,20 @@ def _write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.c18tmp")
     tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    from tests.waiting import wait_until
+
+    def published() -> bool:
+        try:
+            os.replace(tmp, path)
+            return True
+        except PermissionError as exc:
+            # The live RPC process can be reading this fixture on Windows. Preserve an
+            # atomic new inode; retry only native contention and never overwrite in place.
+            if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32, 33):
+                raise
+            return False
+
+    wait_until(published, what=f"atomic fixture publication after readers close: {path}")
 
 
 def _read(path: Path) -> str:
