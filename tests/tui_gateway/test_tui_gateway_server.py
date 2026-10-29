@@ -21249,6 +21249,10 @@ def _join_turn_thread(sess, timeout=10.0):
     stops changing."""
     deadline = time.monotonic() + timeout
     while isinstance(run_thread := sess.get("_run_thread"), threading.Thread):
+        # The dispatch publishes the replacement before Thread.start() returns.
+        # Wait for that real start within the same overall join budget.
+        assert run_thread._started.wait(timeout=max(0.0, deadline - time.monotonic())), (
+            "prompt.submit turn thread did not start")
         run_thread.join(timeout=max(0.0, deadline - time.monotonic()))
         assert not run_thread.is_alive(), "prompt.submit turn thread did not finish"
         if sess.get("_run_thread") is run_thread:

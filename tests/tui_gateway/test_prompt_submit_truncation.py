@@ -4,6 +4,8 @@ The fixtures assert history and durable row identity; their placeholder agents c
 inference. Join every real dispatch before monkeypatch teardown so no continuation resolves
 another test's agent/emitter, and keep this group isolated by the canonical per-file runner.
 """
+import threading
+
 import pytest
 
 from tui_gateway import server
@@ -516,3 +518,37 @@ def _mk_merge_fake_db(verbatim, repaired, replaced):
             replaced.append((key, list(messages)))
 
     return _FakeDB()
+
+
+def test_join_turn_thread_waits_for_published_unstarted_worker():
+    """A published handoff handle is not joinable until its start event fires."""
+    observed = threading.Event()
+    finished = threading.Event()
+
+    class _ObservedStart(threading.Event):
+        def wait(self, timeout=None):
+            observed.set()
+            return super().wait(timeout)
+
+    worker = threading.Thread(target=finished.set, daemon=True)
+    worker._started = _ObservedStart()
+    session = {"_run_thread": worker}
+
+    def finish_handoff():
+        if observed.wait(10.0):
+            worker.start()
+
+    handoff = threading.Thread(target=finish_handoff, daemon=True)
+    handoff.start()
+    try:
+        _join_turn_thread(session)
+        assert finished.is_set()
+        assert not worker.is_alive()
+    finally:
+        # Release and reap both real workers even when the baseline join raises.
+        observed.set()
+        handoff.join(timeout=10.0)
+        assert not handoff.is_alive()
+        if worker._started.is_set():
+            worker.join(timeout=10.0)
+            assert not worker.is_alive()
