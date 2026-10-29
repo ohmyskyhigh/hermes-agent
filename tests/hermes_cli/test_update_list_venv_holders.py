@@ -69,12 +69,27 @@ def test_list_venv_holders_empty_list_exits_zero_without_updating(monkeypatch, c
 
 
 @pytest.mark.platforms("windows")
-def test_read_only_command_reports_a_live_native_interpreter(monkeypatch, capsys, tmp_path):
-    """Exercise the real scanner through cmd_update, including a venv launcher PID."""
+@pytest.mark.parametrize("layout", ["legacy", "managed"])
+def test_read_only_command_reports_a_live_native_interpreter(monkeypatch, capsys, tmp_path, layout):
+    """Exercise cmd_update's real scanner against an owned throwaway venv."""
     monkeypatch.setattr("hermes_cli.config.is_managed", lambda: False)
+    project = tmp_path / "install"
+    project.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    from pm.environments import install_state_dir, runtime_facts_path
+
+    state = install_state_dir(project)
+    assert state.is_relative_to(tmp_path)
+    environment = (state / "environments" / "fixture" / "venv") if layout == "managed" else project / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(environment)],
+                   check=True, timeout=60, encoding="utf-8", capture_output=True)
+    if layout == "managed":
+        runtime_facts_path(project).write_text(json.dumps({"packages": {"venv": {"environment": str(environment)}}}),
+                                              encoding="utf-8")
+    monkeypatch.setattr(cli_main, "PROJECT_ROOT", project)
     ready = tmp_path / "holder-ready"
     child = subprocess.Popen(
-        [sys.executable, "-c", "import pathlib,sys; "
+        [str(environment / "Scripts/python.exe"), "-c", "import pathlib,sys; "
          "pathlib.Path(sys.argv[1]).write_text('ready', encoding='utf-8'); sys.stdin.read()", str(ready)],
         cwd=tmp_path, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW,
