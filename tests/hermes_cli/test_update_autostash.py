@@ -644,6 +644,7 @@ def _repo_with_stash(tmp_path, local_source):
         return subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, text=True, check=check)
 
     git("init", "-q", "-b", "main")
+    git("config", "core.autocrlf", "false")
     git("config", "user.email", "t@example.com")
     git("config", "user.name", "t")
     (tmp_path / "mod.py").write_text("X = 1\n", encoding="utf-8")

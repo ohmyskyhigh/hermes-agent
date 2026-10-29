@@ -20,7 +20,7 @@ jobs:
     # One larger runner installs one time. vitest, tsc and eslint each size
     # their own worker pool from the core count.
     runs-on: ${{ github.repository == 'NousResearch/hermes-agent' && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
         with:
@@ -96,7 +96,10 @@ jobs:
       # not an empty run, because an empty run reports green after it checks
       # nothing.
       - name: Run all workspace checks
-        run: node .github/scripts/run-workspace-checks.mjs
+        # The Fork's smaller runner must not run several independent Vitest
+        # worker pools beside the payload builders. Preserve every check and
+        # its deadlines; only serialize the workspace units on that host.
+        run: node .github/scripts/run-workspace-checks.mjs ${{ github.repository != 'NousResearch/hermes-agent' && '--concurrency 1' || '' }}
       - name: Require the pinned candidate to remain unchanged
         env:
           EXPECTED_SHA: ${{ inputs.commit || github.sha }}

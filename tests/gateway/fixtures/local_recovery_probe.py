@@ -12,6 +12,8 @@ import sys
 import threading
 import time
 
+import psutil
+
 from websockets.asyncio.client import connect
 from tests.gateway.test_normal_runtime_boot import control
 from tests.waiting import async_wait_until
@@ -92,7 +94,18 @@ def daemon(root, home, env, *, barrier, fixture='local_recovery_daemon.py'):
             yield proc, desc
         finally:
             if proc.poll() is None:
+                # A Windows venv launcher owns the actual Python child. Reap
+                # that owned tree too, so the next fixture sees closed DB/WAL
+                # handles rather than a daemon the launcher left running.
+                children = psutil.Process(proc.pid).children(recursive=True)
+                for child in reversed(children):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
                 proc.kill()
+                _, alive = psutil.wait_procs(children, timeout=10)
+                assert not alive, f"fixture daemon children survived: {alive}"
             proc.wait(timeout=10)
 
 

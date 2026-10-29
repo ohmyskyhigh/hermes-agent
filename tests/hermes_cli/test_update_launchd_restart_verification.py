@@ -205,6 +205,7 @@ def _run_fleet_restart():
     update_cmd._restart_macos_launchd_gateways(restarted, failed_or_stale, 5.0)
     return restarted, failed_or_stale
 
+@pytest.mark.platforms("macos")
 class TestInvokingProfileIsVerifiedLikeItsSiblings:
     """The sibling loop already polls for a fresh supervised pid before
     counting a label as restarted.  The invoking profile did not, so the two

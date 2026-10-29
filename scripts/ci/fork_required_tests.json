@@ -26,6 +26,7 @@
     "tests/hermes_cli/test_backup.py",
     "tests/hermes_cli/test_backup_all_profiles.py",
     "tests/hermes_cli/test_backup_cron_prompts_lock.py",
+    "tests/hermes_cli/test_backup_failed_members.py",
     "tests/hermes_cli/test_backup_import_deleted_holder.py",
     "tests/hermes_cli/test_backup_path_errors.py",
     "tests/hermes_cli/test_backup_preflight.py",

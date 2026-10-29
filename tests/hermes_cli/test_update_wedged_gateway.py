@@ -391,6 +391,7 @@ class TestEscalateWedgedGateway:
         assert gateway_cli._escalate_wedged_gateway(4242) is False
         assert calls == [False, True]
 
+@pytest.mark.platforms("macos")
 class TestLaunchdRestartWedgedIntegration:
     """launchd_restart must skip the 180s drain only for a wedged loop."""
 

@@ -1,4 +1,5 @@
 """Preflight must work while the app is broken and its database is still live."""
+from contextlib import closing
 import json
 import sqlite3
 import subprocess
@@ -38,19 +39,19 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         for _ in range(3):
             result = subprocess.run(
                 [sys.executable, "-I", "-S", "-c", runner, str(script), str(home)],
-                capture_output=True, text=True, timeout=20,
+                capture_output=True, text=True, encoding="utf-8", timeout=20,
                 check=False,
             )
             assert result.returncode == 0, result.stderr
             backup = Path(json.loads(result.stdout)["path"])
-            with sqlite3.connect(backup) as snapshot:
+            with closing(sqlite3.connect(backup)) as snapshot:
                 assert snapshot.execute("SELECT * FROM messages").fetchall() == [("committed only in WAL",)]
                 assert snapshot.execute("PRAGMA integrity_check").fetchone() == ("ok",)
         assert len(list(home.glob("state.db.pre-update-emergency-*.bak"))) == 2
     writer.close()
     previous = sorted(home.glob("state.db.pre-update-emergency-*.bak"))
     db.write_bytes(b"broken database")
-    result = subprocess.run([sys.executable, "-I", "-S", str(script), str(home)], capture_output=True, text=True, timeout=20, check=False)
+    result = subprocess.run([sys.executable, "-I", "-S", str(script), str(home)], capture_output=True, text=True, encoding="utf-8", timeout=20, check=False)
     assert result.returncode != 0
     assert sorted(home.glob("state.db.pre-update-emergency-*.bak")) == previous
     assert not list(home.glob("*.partial"))

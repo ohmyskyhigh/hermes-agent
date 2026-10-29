@@ -25,6 +25,13 @@ def git(root, *args):
 
 @pytest.fixture
 def update_tree(tmp_path, monkeypatch):
+    from hermes_cli import update_custody
+
+    def execute_git(argv, *, inherit_lock=False, **kwargs):
+        # These cells inject git faults; live custody is covered by its own suite.
+        return subprocess.run(argv, check=kwargs.pop('check', False), **kwargs)
+
+    monkeypatch.setattr(update_custody, 'run', execute_git)
     monkeypatch.setenv('GIT_CONFIG_GLOBAL', str(tmp_path / 'git-config'))
     monkeypatch.setenv('GIT_CONFIG_NOSYSTEM', '1')
     monkeypatch.setenv('GIT_ALLOW_PROTOCOL', 'file')
@@ -36,7 +43,7 @@ def update_tree(tmp_path, monkeypatch):
     git(origin, 'config', 'user.name', 'Fixture')
     git(origin, 'config', 'user.email', 'fixture@example.invalid')
     (origin / 'content.txt').write_text('base\n', encoding='utf-8')
-    (origin / '.gitignore').write_text('.bytecode-fingerprint\n', encoding='utf-8')
+    (origin / '.gitignore').write_text('.bytecode-fingerprint\n', encoding='utf-8', newline='\n')
     git(origin, 'add', 'content.txt', '.gitignore')
     git(origin, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'base')
     git(origin, 'tag', 'v1.0.0')

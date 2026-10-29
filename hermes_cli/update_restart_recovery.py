@@ -170,7 +170,7 @@ def _host_state_dir() -> str:
     """
     override = os.environ.get("HERMES_GATEWAY_LOCK_DIR")
     if override:
-        return override
+        return os.path.normpath(override)
     state_home = os.environ.get("XDG_STATE_HOME") or ""
     if not os.path.isabs(state_home):
         state_home = os.path.join(os.path.expanduser("~"), ".local", "state")
