@@ -103,6 +103,11 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
         anchor = reply_to_message_id or getattr(source, "message_id", None)
         if anchor is not None:
             metadata["telegram_reply_to_message_id"] = str(anchor)
+    if platform == "feishu" and thread_id is not None and reply_to_message_id is not None:
+        # Attachments are delivered after text through metadata-only helpers. Preserve the
+        # concrete message anchor so Feishu can use ReplyMessage(reply_in_thread=True)
+        # without requiring the bot to list every message in the topic.
+        metadata["reply_to_message_id"] = str(reply_to_message_id)
     # Routed profile (multiplex / profile_routes): outbound prune paths must not assume the
     # adapter's static profile stamp.
     profile = str(getattr(source, "profile", None) or "").strip()
@@ -1733,6 +1738,8 @@ def merge_pending_message_event(pending_messages: dict[str, MessageEvent], sessi
         # A photo burst always absorbs; otherwise merge only when media is involved on either
         # side. Captions merge in every absorbing case.
         if both_photo or existing.media_urls or incoming_has_media:
+            if event.attachment_refs:
+                existing.attachment_refs = [*(existing.attachment_refs or []), *event.attachment_refs]
             if both_photo or incoming_has_media:
                 existing.media_urls.extend(event.media_urls)
                 existing.media_types.extend(event.media_types)
@@ -1752,6 +1759,8 @@ def merge_pending_message_event(pending_messages: dict[str, MessageEvent], sessi
             return
         both_text = existing_type == MessageType.TEXT and event.message_type == MessageType.TEXT
         if merge_text and both_text:
+            if event.attachment_refs:
+                existing.attachment_refs = [*(existing.attachment_refs or []), *event.attachment_refs]
             if event.text:
                 existing.text = _append_text(existing.text, event.text)
             existing.absorb_reply_expected(event)
@@ -3744,6 +3753,9 @@ class BasePlatformAdapter(ABC):
 
     def _can_merge_text_debounce_events(self, existing: MessageEvent, event: MessageEvent) -> bool:
         """Return True when two text debounce events came from the same sender."""
+        if existing.attachment_refs or event.attachment_refs:
+            # Receipts retain their original message and per-admission byte budget.
+            return False
 
         def _identity(candidate: MessageEvent) -> tuple[str, ...] | None:
             source = getattr(candidate, "source", None)
@@ -4538,10 +4550,14 @@ class BasePlatformAdapter(ABC):
                 text_content, media_files = extracted.text_content, extracted.media_files
                 # Final content gets notify=True; typing metadata stays unmarked (thread-strict).
                 from gateway.reply_policy import (
-                    reply_policy_metadata, send_policy_text_first, without_reply_mentions,
+                    send_policy_text_first, without_reply_mentions,
                 )
-                _final_thread_metadata = _mark_notify_metadata(
-                    reply_policy_metadata(event, _thread_metadata))
+                # The handler may establish a late routing decision (for example Campaign
+                # supervision binds ``reply_anchor_override`` to the durable topic root).
+                # Rebuild final metadata after the handler instead of reusing the snapshot
+                # taken before execution; attachments receive metadata but no ``reply_to``
+                # argument, so a stale snapshot silently loses their Feishu topic anchor.
+                _final_thread_metadata = _mark_notify_metadata(_thread_metadata_for_event(event))
 
                 async def _send_policy_text(text, metadata, record):
                     def _record(result):

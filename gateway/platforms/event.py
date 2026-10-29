@@ -111,6 +111,21 @@ class MessageEvent:
     # ``message_id`` with new text, so native admission keys it apart from the original send.
     # Appended for positional compat (see the field-order rule above).
     edit_revision: Optional[str] = None
+    # App-scoped platform sender identity used for native recipient addressing. Kept separate
+    # from ``source.user_id`` because adapters may prefer a tenant- or developer-scoped alias
+    # for authorization/session routing while replies still require the original open id.
+    # Appended for positional compatibility and persisted by native admission.
+    sender_open_id: Optional[str] = None
+    # Native mention identifiers and topic root, for deterministic topic ownership (never @text).
+    mentioned_user_ids: Optional[list[str]] = None
+    topic_root_message_id: Optional[str] = None
+    native_task_text: Optional[str] = None
+    # Recoverable platform resource descriptors, not downloaded paths or SDK payloads.
+    attachment_refs: Optional[list[dict]] = None
+    # Adapter-verified explicit native @self, not admission via @all / open group policy.
+    native_mention_self: bool = False
+    # Includes explicit native recipients without an ID; excludes @everyone.
+    native_mentions_present: bool = False
 
     # Process-local admission receipt, never routing metadata or execution acknowledgement.
     _gateway_accepted: bool = field(default=False, init=False, repr=False, compare=False)

@@ -2258,6 +2258,11 @@ def _bare_unit_pinned_home() -> Path | None:
 
 def _home_owns_bare_service_name(home: Path) -> bool:
     """True for the resolved ``home`` that owns the bare service name (see ``_profile_suffix``)."""
+    if is_windows():
+        from hermes_cli.gateway_windows_identity import bare_task_home
+        pinned = bare_task_home()
+        if pinned is not None:
+            return home == pinned
     return home in _native_service_homes() or home == _bare_unit_pinned_home()
 
 
@@ -2265,7 +2270,9 @@ def _profile_suffix() -> str:
     """Service-name suffix for HERMES_HOME: "" for a home that owns the bare name, the profile name for
     ``<root>/profiles/<name>``, else a short hash of the path.
 
-    Bare-name owners: this process's platform-native default (``~/.hermes``), under sudo the invoking
+    On Windows, an existing bare task's exact launcher directory owns its name even after relocation;
+    a different native home cannot take that registered task. Otherwise bare-name owners are
+    this process's platform-native default (``~/.hermes``), under sudo the invoking
     user's native default, and the home pinned by an installed ``hermes-gateway.service``. Under sudo the
     naming basis moves MID-COMMAND — sudo strips HERMES_HOME and sets HOME=/root, then
     ``_sync_hermes_home_from_systemd_unit()`` adopts the unit's own HERMES_HOME into ``os.environ`` — so a

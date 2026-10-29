@@ -1370,8 +1370,28 @@ def uninstall() -> None:
 # ── Status / start / stop / restart
 
 def is_task_registered() -> bool:
-    code, _out, _err = _exec_schtasks(["/Query", "/TN", get_task_name()])
-    return code == 0
+    task_name = get_task_name()
+    code, out, err = _exec_schtasks(["/Query", "/TN", task_name])
+    if code == 0:
+        return True
+
+    # A failed CLI query also means timeout/access failure, not necessarily absence.
+    # COM distinguishes a missing task from an unavailable scheduler without parsing
+    # localized error text, and uses the same exact task identity.
+    from hermes_cli.gateway import _windows_scheduled_task_state
+
+    state = _windows_scheduled_task_state(task_name)
+    if state == "MISSING":
+        return False
+    if state in {"Unknown", "Disabled", "Queued", "Ready", "Running"}:
+        logger.warning("Scheduled Task %r confirmed via COM after schtasks failed (code %s): %s",
+                       task_name, code, (err or out).strip())
+        return True
+    raise RuntimeError(
+        f"Could not determine whether Scheduled Task {task_name!r} is installed: "
+        f"schtasks query failed (code {code}): {(err or out).strip() or 'no output'}; "
+        "Task Scheduler COM query also failed. Existing service registration was not changed."
+    )
 
 
 def is_startup_entry_installed() -> bool:
@@ -1609,25 +1629,13 @@ def _probe_state_file(state_path: Path) -> None:
         _probe(5, False, f"gateway_state.json present but unreadable: {exc}")
 
 
-def _probe_exit_diag(diag_path: Path) -> None:
+def _probe_exit_diag(diag_path: Path, *, running_pid: int | None) -> None:
     if _probe_missing(6, diag_path, "exit-diag log"):
         return
     try:
-        with open(diag_path, "rb") as fh:
-            fh.seek(0, 2)   # last ~4KB; one event is well under 500 bytes
-            size = fh.tell()
-            fh.seek(max(0, size - 4096))
-            tail = fh.read().decode("utf-8", errors="replace").splitlines()
-        last_event = next((ln for ln in reversed(tail) if ln.strip()), "")
-        if not last_event:
-            _probe(6, False, f"exit-diag log empty: {diag_path}")
-            return
-        try:
-            event = json.loads(last_event)
-            tag = event.get("tag", "?")
-            _probe(6, tag in ("gateway.start",), f"Last lifecycle event: tag={tag} pid={event.get('pid', '?')} ts={event.get('ts', '?')}")
-        except Exception:
-            _probe(6, False, f"Last lifecycle line not JSON: {last_event[:120]}")
+        from hermes_cli.gateway_windows_lifecycle import lifecycle_probe_result
+        healthy, message = lifecycle_probe_result(diag_path, running_pid)
+        _probe(6, healthy, message)
     except Exception as exc:
         _probe(6, False, f"exit-diag log unreadable: {exc}")
 
@@ -1642,7 +1650,7 @@ def _print_deep_probes() -> None:
     running_pid = _probe_running_pid()
     _probe_pid_exists(running_pid if running_pid is not None else pid_value)
     _probe_state_file(home / "gateway_state.json")
-    _probe_exit_diag(home / "logs" / "gateway-exit-diag.log")
+    _probe_exit_diag(home / "logs" / "gateway-exit-diag.log", running_pid=running_pid)
 
 
 def status(deep: bool = False) -> None:

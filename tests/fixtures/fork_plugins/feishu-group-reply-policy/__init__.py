@@ -1,7 +1,7 @@
 """Opt-in Feishu group reply policy. No model calls, tools, or network I/O.
 
 Conservative full-message courtesy rules, not a semantic task-state engine.
-Unknown substantive messages are delivered; unresolved recipients are deferred.
+Unknown substantive messages are delivered; unresolved recipients fail open without a mention.
 """
 import re
 
@@ -44,7 +44,9 @@ def gateway_reply_policy(*, phase, context, **kwargs):
     if not ident and str(context.get('sender_id') or '').startswith('ou_'):
         ident = context['sender_id']
     if not isinstance(ident, str) or not re.fullmatch(r'ou_[A-Za-z0-9_-]+', ident):
-        return {'action': 'defer', 'reason': 'recipient_unresolved'}
+        # Recipient resolution is an addressing enhancement, not permission to discard a
+        # substantive answer. Preserve the reply even if a future adapter loses the open id.
+        return {'action': 'send', 'mentions': [], 'reason': 'recipient_unresolved_fail_open'}
     return {
         'action': 'send',
         'mentions': [{'id': ident, 'name': name or ident}],

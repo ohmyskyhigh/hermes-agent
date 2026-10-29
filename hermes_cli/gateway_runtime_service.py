@@ -37,16 +37,17 @@ def remaining(deadline: float) -> float:
 def service_suffix(home: Path) -> str:
     """Host-service suffix for the REQUESTED home, never the initiating client's env.
 
-    Same rule as ``hermes_cli.gateway._profile_suffix``: only the platform-native
-    default home owns the bare unit name; ``<root>/profiles/<name>`` yields the
+    On Windows, share the registered-task ownership rule with ``gateway._profile_suffix``;
+    otherwise the platform-native default owns the bare name. ``<root>/profiles/<name>`` yields the
     profile name; any other root (Docker, a temp harness) yields a path hash so a
     custom root can never resolve to the production ``hermes-gateway`` unit.
     """
     from hermes_constants import account_default_hermes_home
-    from hermes_cli.gateway import _profile_name_from_home
+    from hermes_cli.gateway import _home_owns_bare_service_name, _profile_name_from_home
     default = account_default_hermes_home().resolve()
     home = home.resolve()
-    if home == default:
+    owns_bare = _home_owns_bare_service_name(home) if sys.platform == "win32" else home == default
+    if owns_bare:
         return ""
     root = default
     if not home.is_relative_to(default):

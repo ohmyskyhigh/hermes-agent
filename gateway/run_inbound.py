@@ -1264,8 +1264,9 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
             return _paused_notice
 
         _quick_key = self._session_key_for_source(source)
-        _reply = None if is_internal else await self._hm_pending_reply_intercepts(event, source, _quick_key)
-        if _reply is not None:
+        from gateway.topic_campaign_service import pending_reply_or_campaign
+        _handled, _reply = await pending_reply_or_campaign(self, event, source, _quick_key, is_internal)
+        if _handled:
             return _reply
 
         _owned, _authority_reply = await self._hm_authority_admission(event, source, _quick_key, is_internal)
@@ -1326,7 +1327,8 @@ class GatewayInboundMixin(GatewayInboundHooksMixin, GatewayInboundTranscriptionM
                 if _consumed:
                     return _consumer_reply
             try:
-                _agent_result = await self._handle_message_with_agent(event, source, _quick_key, _run_generation)
+                from gateway.topic_campaign_service import execute_campaign_turn
+                _agent_result = await execute_campaign_turn(self, event, source, _quick_key, _run_generation)
             except TurnLeaseTimeoutError as exc:
                 # A rejected message, not a completed turn: return before the /goal judge so it
                 # cannot consume the resend notice and enqueue a synthetic continuation loop.

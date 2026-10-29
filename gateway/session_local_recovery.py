@@ -98,10 +98,56 @@ def _checked_entry(authority, receipt, source, route):
     return entry
 
 
+def _same_profile_directory(stored, current):
+    """A moved install may retain a junction alias in its immutable creation receipt."""
+    if stored == current:
+        return True
+    old, new = Path(stored), Path(current)
+    if not old.is_absolute() or not new.is_absolute():
+        return False
+    try:
+        return old.samefile(new)
+    except OSError:
+        return False
+
+
+_PROFILE_DIRECTORY_ALIASES = 'gateway.local_profile_directory_aliases.v1'
+
+
+def record_profile_directory_alias(db, stored, current):
+    """Record an operator-verified relocation without rewriting immutable creation receipts.
+
+    Windows login tasks may not see the old junction. Pin the destination's filesystem
+    identity while both paths are accessible, and bind the record to its owning database.
+    """
+    old, destination = Path(stored), Path(current).resolve(strict=True)
+    if (not old.is_absolute() or not destination.is_dir() or not old.samefile(destination)
+            or not Path(db.db_path).resolve().parent.samefile(destination)):
+        raise ValueError('profile directory alias must identify this database home')
+    aliases = json.loads(db.get_meta(_PROFILE_DIRECTORY_ALIASES) or '{}')
+    stat = destination.stat()
+    aliases[str(stored)] = {'canonical': str(destination), 'device': stat.st_dev, 'inode': stat.st_ino}
+    db.set_meta(_PROFILE_DIRECTORY_ALIASES, json.dumps(aliases, sort_keys=True))
+
+
+def _recorded_profile_directory(authority, stored):
+    """Accept only the exact, still-existing directory pinned by a verified migration."""
+    try:
+        aliases = json.loads(authority.db.get_meta(_PROFILE_DIRECTORY_ALIASES) or '{}')
+        record = aliases.get(stored)
+        if not isinstance(record, dict) or record.get('canonical') != authority.profile_id:
+            return False
+        stat = Path(authority.profile_id).stat()
+        return (record.get('device'), record.get('inode')) == (stat.st_dev, stat.st_ino)
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def owned_receipt(authority, sid):
     """*sid*'s stored receipt with its LOCAL source, route and entry, once all are this owner's."""
     receipt = local_receipt(authority.db, sid)
-    if receipt['profile_id'] != authority.profile_id:
+    if (not _same_profile_directory(receipt['profile_id'], authority.profile_id)
+            and not _recorded_profile_directory(authority, receipt['profile_id'])):
         raise RuntimeStoreError('profile_mismatch')
     chat_id = (receipt['legacy_session_id'] if 'legacy_session_id' in receipt else
                local_identity(receipt['profile_id'], receipt['principal_id'], receipt['request_id']))

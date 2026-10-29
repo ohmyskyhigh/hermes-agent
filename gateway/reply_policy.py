@@ -19,7 +19,7 @@ def reply_policy_context(event, text=None):
     source = event.source
     raw = getattr(event, "raw_message", None)
     sender = _field(_field(raw, "event", raw), "sender")
-    open_id = _field(_field(sender, "sender_id"), "open_id")
+    open_id = getattr(event, "sender_open_id", None) or _field(_field(sender, "sender_id"), "open_id")
     from hermes_cli.profiles import get_active_profile_name
     context = {
         "platform": str(getattr(source.platform, "value", source.platform)),

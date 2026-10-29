@@ -239,9 +239,10 @@ _SKIP_TEXT_KEYS = {
 
 @dataclass(frozen=True)
 class FeishuPostMediaRef:
-    file_key: str
-    file_name: str = ""
+    file_key: Any  # Preserve unvalidated payload values for ingress rejection.
+    file_name: Any = ""
     resource_type: str = "file"
+    media_hint: str = "document"
 
 
 @dataclass(frozen=True)
@@ -272,7 +273,7 @@ class _FeishuBotIdentity:
 @dataclass(frozen=True)
 class FeishuPostParseResult:
     text_content: str
-    image_keys: list[str] = field(default_factory=list)
+    image_keys: list[Any] = field(default_factory=list)
     media_refs: list[FeishuPostMediaRef] = field(default_factory=list)
 
 
@@ -281,7 +282,7 @@ class FeishuNormalizedMessage:
     raw_type: str
     text_content: str
     preferred_message_type: str = "text"
-    image_keys: list[str] = field(default_factory=list)
+    image_keys: list[Any] = field(default_factory=list)
     media_refs: list[FeishuPostMediaRef] = field(default_factory=list)
     mentions: list[FeishuMentionRef] = field(default_factory=list)
     relation_kind: str = "plain"
@@ -489,7 +490,7 @@ def parse_feishu_post_payload(
     resolved = _resolve_post_payload(payload)
     if not resolved:
         return FeishuPostParseResult(text_content=FALLBACK_POST_TEXT)
-    image_keys: list[str] = []
+    image_keys: list[Any] = []
     media_refs: list[FeishuPostMediaRef] = []
     parts: list[str] = []
     title = _normalize_feishu_text(str(resolved.get("title", "")).strip())
@@ -507,7 +508,7 @@ def parse_feishu_post_payload(
         if (
             not isinstance(entry, dict)
             or _to_boolean(entry.get("is_folder"))
-            or not str(entry.get("file_key", "")).strip()
+            or "file_key" not in entry
         ):
             continue
         placeholder = _render_post_element(
@@ -561,7 +562,7 @@ _STATIC_POST_TAGS = {"br": "\n", "hr": "\n\n---\n\n", "divider": "\n\n---\n\n"}
 
 
 def _render_post_element(
-    element: Any, image_keys: list[str], media_refs: list[FeishuPostMediaRef],
+    element: Any, image_keys: list[Any], media_refs: list[FeishuPostMediaRef],
     mentions_map: Optional[dict[str, FeishuMentionRef]] = None,
 ) -> str:
     if isinstance(element, str):
@@ -597,21 +598,21 @@ def _render_post_element(
         )
         return f"@{_escape_markdown_text(display_name)}"
     if tag in {"img", "image"}:
-        image_key = str(element.get("image_key", "")).strip()
-        if image_key and image_key not in image_keys:
+        image_key = element.get("image_key", "")
+        if "image_key" in element and image_key not in image_keys:
             image_keys.append(image_key)
         alt = str(element.get("text", "")).strip() or str(element.get("alt", "")).strip()
         return f"[Image: {alt}]" if alt else "[Image]"
     if tag in {"media", "file", "audio", "video"}:
-        file_key = str(element.get("file_key", "")).strip()
-        names = (str(element.get(k, "")).strip() for k in ("file_name", "title", "text"))
-        file_name = next((n for n in names if n), "")
-        placeholder = f"[Attachment: {file_name}]" if file_name else "[Attachment]"
-        if not file_key:
+        file_key = element.get("file_key", "")
+        file_name = _attachment_file_name(element)
+        placeholder = _attachment_placeholder(file_name)
+        if "file_key" not in element:
             return placeholder
         if not any(ref.file_key == file_key for ref in media_refs):
             media_refs.append(FeishuPostMediaRef(
                 file_key=file_key, file_name=file_name, resource_type=tag if tag in {"audio", "video"} else "file",
+                media_hint="video" if tag in {"media", "video"} else ("audio" if tag == "audio" else "document"),
             ))
             return placeholder
         return ""
@@ -631,7 +632,7 @@ def _join_nested_posts(values: Any, image_keys: Any, media_refs: Any, mentions_m
 
 
 def _render_nested_post(
-    value: Any, image_keys: list[str], media_refs: list[FeishuPostMediaRef],
+    value: Any, image_keys: list[Any], media_refs: list[FeishuPostMediaRef],
     mentions_map: Optional[dict[str, FeishuMentionRef]] = None,
 ) -> str:
     if isinstance(value, str):
@@ -675,7 +676,7 @@ def normalize_feishu_message(
         )
     mention_refs = list(mentions_map.values())
     if normalized_type == "image":
-        image_key = str(payload.get("image_key", "") or "").strip()
+        image_key = payload.get("image_key", "")
         alt_text = _normalize_feishu_text(
             str(payload.get("text", "") or "")
             or str(payload.get("alt", "") or "")
@@ -685,7 +686,7 @@ def normalize_feishu_message(
         return FeishuNormalizedMessage(
             raw_type=normalized_type,
             text_content=alt_text if alt_text != FALLBACK_IMAGE_TEXT else "",
-            preferred_message_type="photo", image_keys=[image_key] if image_key else [],
+            preferred_message_type="photo", image_keys=[image_key] if "image_key" in payload else [],
             relation_kind="image", mentions=mention_refs,
         )
     if normalized_type in {"file", "audio", "media"}:
@@ -693,7 +694,7 @@ def normalize_feishu_message(
         return FeishuNormalizedMessage(
             raw_type=normalized_type, text_content="",
             preferred_message_type="audio" if normalized_type == "audio" else "document",
-            media_refs=[media_ref] if media_ref.file_key else [], relation_kind=normalized_type,
+            media_refs=[media_ref] if "file_key" in payload else [], relation_kind=normalized_type,
             metadata={"placeholder_text": _attachment_placeholder(media_ref.file_name)},
             mentions=mention_refs,
         )
@@ -826,14 +827,26 @@ def _collect_text_segments(value: Any, *, in_rich_block: bool) -> list[str]:
 
 
 def _build_media_ref_from_payload(payload: dict[str, Any], *, resource_type: str) -> FeishuPostMediaRef:
-    file_key = str(payload.get("file_key", "") or "").strip()
-    file_name = _first_text_field(payload, "file_name", "title", "text")
+    file_key = payload.get("file_key", "")
+    file_name = _attachment_file_name(payload)
     effective_type = resource_type if resource_type in {"audio", "video"} else "file"
-    return FeishuPostMediaRef(file_key=file_key, file_name=file_name, resource_type=effective_type)
+    return FeishuPostMediaRef(file_key=file_key, file_name=file_name, resource_type=effective_type,
+                             media_hint="video" if resource_type in {"media", "video"} else
+                             ("audio" if resource_type == "audio" else "document"))
 
 
-def _attachment_placeholder(file_name: str) -> str:
-    normalized_name = _normalize_feishu_text(file_name)
+def _attachment_file_name(payload: dict[str, Any]) -> Any:
+    """Keep original metadata, including invalid types, until ingress validates it."""
+    for key in ("file_name", "title", "text"):
+        value = payload.get(key, "")
+        if value != "":
+            return value
+    return ""
+
+
+def _attachment_placeholder(file_name: Any) -> str:
+    # Presentation normalization must never feed back into the resource reference.
+    normalized_name = _normalize_feishu_text(file_name) if isinstance(file_name, str) else ""
     return f"[Attachment: {normalized_name}]" if normalized_name else FALLBACK_ATTACHMENT_TEXT
 
 
@@ -2512,6 +2525,7 @@ class FeishuAdapter(BasePlatformAdapter):
         synthetic_event = MessageEvent(
             text=text, message_type=message_type, source=source, raw_message=raw_message,
             message_id=message_id, channel_prompt=self._resolve_channel_prompt(chat_id),
+            sender_open_id=getattr(sender_id, "open_id", None),
             timestamp=datetime.now(),
         )
         await self._handle_message_with_guards(synthetic_event)
@@ -2580,6 +2594,12 @@ class FeishuAdapter(BasePlatformAdapter):
         return data is not None
 
     async def on_processing_start(self, event: MessageEvent) -> None:
+        if event.internal:
+            return
+        from gateway.topic_campaign_service import defer_campaign_processing_marker
+        if (not getattr(event, "_campaign_turn_admitted", False)
+                and defer_campaign_processing_marker(self.gateway_runner, event)):
+            return
         message_id = event.message_id
         if not self._reactions_enabled() or not message_id or message_id in self._pending_processing_reactions:
             return
@@ -2592,6 +2612,8 @@ class FeishuAdapter(BasePlatformAdapter):
                 cache.popitem(last=False)
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
+        if event.internal:
+            return
         message_id = event.message_id
         if not self._reactions_enabled() or not message_id:
             return
@@ -2634,7 +2656,11 @@ class FeishuAdapter(BasePlatformAdapter):
     async def _process_inbound_message(
         self, *, data: Any, message: Any, sender_id: Any, chat_type: str, message_id: str, is_bot: bool = False,
     ) -> None:
-        text, inbound_type, media_urls, media_types, media_text_inlined, mentions = await self._extract_message_content(message)
+        attachment_refs: list[dict] = []
+        receipt_sender = (getattr(sender_id, "user_id", None) or getattr(sender_id, "open_id", None)
+                          or getattr(sender_id, "union_id", None) or "")
+        text, inbound_type, media_urls, media_types, media_text_inlined, mentions = await self._extract_message_content(
+            message, attachment_refs=attachment_refs, sender_id=receipt_sender)
         if inbound_type == MessageType.TEXT:
             text = _strip_edge_self_mentions(text, mentions)
             if text.startswith("/"):
@@ -2681,18 +2707,34 @@ class FeishuAdapter(BasePlatformAdapter):
             is_bot=is_bot,
             message_id=message_id,
         )
+        from plugins.platforms.feishu.inbound_task_text import native_task_text
         normalized = MessageEvent(
+            native_task_text=native_task_text(message),
             text=text, message_type=inbound_type, source=source, raw_message=data,
             message_id=message_id, media_urls=media_urls, media_types=media_types,
             media_text_inlined=media_text_inlined,
+            attachment_refs=attachment_refs or None,
+            native_mention_self=(self._message_mentions_bot(getattr(message, "mentions", None) or [])
+                                 or any(m.is_self and not m.is_all for m in mentions)),
+            native_mentions_present=any(not m.is_all for m in mentions),
             reply_to_message_id=reply_to_message_id, reply_to_text=reply_to_text,
+            sender_open_id=getattr(sender_id, "open_id", None),
             channel_prompt=self._resolve_channel_prompt(chat_id, thread_id or None),
+            mentioned_user_ids=[ident for m in (getattr(message, "mentions", None) or [])
+                                if (ident := (getattr(getattr(m, "id", None), "open_id", None)
+                                              or getattr(getattr(m, "id", None), "user_id", None)))],
+            topic_root_message_id=(getattr(message, "root_id", None) or message_id) if thread_id else None,
             timestamp=datetime.now(),
         )
         await self._dispatch_inbound_event(normalized)
 
     async def _dispatch_inbound_event(self, event: MessageEvent) -> None:
         """Apply Feishu-specific burst protection before entering the base adapter."""
+        if event.attachment_refs:
+            # One receipt set is one bounded download/admission budget. Keep its own
+            # message anchor; the shared runtime queues it normally when busy.
+            await self._handle_message_with_guards(event)
+            return
         if event.message_type == MessageType.TEXT and not event.is_command():
             await self._enqueue_text_event(event)
             return
@@ -2957,6 +2999,9 @@ class FeishuAdapter(BasePlatformAdapter):
             existing.reply_to_message_id == incoming.reply_to_message_id
             and existing.reply_to_text == incoming.reply_to_text
             and existing.source.thread_id == incoming.source.thread_id
+            and existing.source.chat_id == incoming.source.chat_id
+            and existing.source.user_id == incoming.source.user_id
+            and not (existing.attachment_refs or incoming.attachment_refs)
         )
 
     async def _enqueue_text_event(self, event: MessageEvent) -> None:
@@ -3024,18 +3069,26 @@ class FeishuAdapter(BasePlatformAdapter):
         )
 
     async def _extract_message_content(
-        self, message: Any
+        self, message: Any, *, attachment_refs: Optional[list[dict]] = None, sender_id: str = "",
     ) -> tuple[str, MessageType, list[str], list[str], list[bool], list[FeishuMentionRef]]:
         raw_content = getattr(message, "content", "") or ""
         raw_type = getattr(message, "message_type", "") or ""
         message_id = str(getattr(message, "message_id", "") or "")
         logger.info("[Feishu] Received raw message type=%s message_id=%s", raw_type, message_id)
         normalized = self._normalize(raw_type, raw_content, getattr(message, "mentions", None))
-        media_urls, media_types = await self._download_feishu_message_resources(
-            message_id=message_id, normalized=normalized,
-        )
+        if attachment_refs is not None:
+            from plugins.platforms.feishu.inbound_attachments import receive_attachments
+            media_urls, media_types, receipt_note = await receive_attachments(
+                self, message, normalized, sender_id, attachment_refs)
+        else:
+            # Compatibility for callers extracting content outside a routed inbound event.
+            media_urls, media_types = await self._download_feishu_message_resources(
+                message_id=message_id, normalized=normalized)
+            receipt_note = ""
         inbound_type = self._resolve_normalized_message_type(normalized, media_types)
         text = normalized.text_content
+        if receipt_note:
+            text = f"{text}\n\n{receipt_note}" if text else receipt_note
         media_text_inlined: list[bool] = []
         inlined_parts: list[str] = []
         for media_url, media_type in zip(media_urls, media_types):
@@ -3118,79 +3171,32 @@ class FeishuAdapter(BasePlatformAdapter):
         )
         return await self._run_blocking(self._client.im.v1.message_resource.get, request)
 
+    async def _download_attachment_result(
+        self, *, message_id: str, file_key: str, resource_type: str, filename: str = "",
+        media_hint: str = "document", max_bytes: Optional[int] = None,
+    ) -> dict:
+        from plugins.platforms.feishu.inbound_resources import download_resource
+        from plugins.platforms.feishu.inbound_attachments import resource_limit
+        home = get_hermes_home()
+        return await asyncio.to_thread(
+            download_resource, self._client, message_id=message_id, file_key=file_key,
+            resource_type=resource_type, filename=filename, media_hint=media_hint,
+            cache_dir=home / "cache" / "documents" / "feishu-resources",
+            max_bytes=resource_limit() if max_bytes is None else max_bytes)
+
     async def _download_feishu_image(self, *, message_id: str, image_key: str) -> tuple[str, str]:
-        if not self._client or not message_id:
-            return "", ""
-        try:
-            response = await self._fetch_message_resource(message_id=message_id, file_key=image_key, resource_type="image")
-            if not response or not response.success():
-                logger.warning(
-                    "[Feishu] Failed to download image %s: %s %s",
-                    image_key, getattr(response, "code", "unknown"), getattr(response, "msg", "request failed"),
-                )
-                return "", ""
-            raw_bytes = self._read_binary_response(response)
-            if not raw_bytes:
-                return "", ""
-            content_type = self._get_response_header(response, "Content-Type")
-            filename = getattr(response, "file_name", None) or f"{image_key}.jpg"
-            ext = self._guess_extension(filename, content_type, ".jpg", allowed=_IMAGE_EXTENSIONS)
-            cached_path = await cache_image_from_bytes_async(raw_bytes, ext=ext)
-            return cached_path, self._normalize_media_type(content_type, default=self._default_image_media_type(ext))
-        except Exception:
-            logger.warning("[Feishu] Failed to cache image resource %s", image_key, exc_info=True)
-            return "", ""
+        result = await self._download_attachment_result(
+            message_id=message_id, file_key=image_key, resource_type="image", media_hint="image")
+        return (result["path"], result["mime_type"]) if result["state"] == "ready" else ("", "")
 
     async def _download_feishu_message_resource(
         self, *, message_id: str, file_key: str, resource_type: str, fallback_filename: str,
     ) -> tuple[str, str]:
-        if not self._client or not message_id:
-            return "", ""
-        # audio/media uploads are sometimes only retrievable as type=file.
-        request_types = [resource_type] + (["file"] if resource_type in {"audio", "media"} else [])
-        for request_type in request_types:
-            try:
-                response = await self._fetch_message_resource(
-                    message_id=message_id, file_key=file_key, resource_type=request_type,
-                )
-                if not response or not response.success():
-                    logger.debug(
-                        "[Feishu] Resource download failed for %s/%s via type=%s: %s %s",
-                        message_id, file_key, request_type,
-                        getattr(response, "code", "unknown"), getattr(response, "msg", "request failed"),
-                    )
-                    continue
-                raw_bytes = self._read_binary_response(response)
-                if not raw_bytes:
-                    continue
-                content_type = self._get_response_header(response, "Content-Type")
-                filename = (getattr(response, "file_name", None) or "") or fallback_filename or f"{request_type}_{file_key}"
-                media_type = self._normalize_media_type(
-                    content_type, default=self._guess_media_type_from_filename(filename),
-                )
-
-                if media_type.startswith("image/"):
-                    ext = self._guess_extension(filename, content_type, ".jpg", allowed=_IMAGE_EXTENSIONS)
-                    kind, cached_path = "image", await cache_image_from_bytes_async(raw_bytes, ext=ext)
-                    media_type = media_type or self._default_image_media_type(ext)
-                elif request_type == "audio" or media_type.startswith("audio/"):
-                    ext = self._guess_extension(filename, content_type, ".ogg", allowed=_AUDIO_EXTENSIONS)
-                    kind, cached_path = "audio", await cache_audio_from_bytes_async(raw_bytes, ext=ext)
-                    media_type = media_type or f"audio/{ext.lstrip('.') or 'ogg'}"
-                elif media_type.startswith("video/"):
-                    if not Path(filename).suffix:
-                        filename = f"{filename}.mp4"
-                    kind, cached_path = "video", await cache_document_from_bytes_async(raw_bytes, filename)
-                else:
-                    if not Path(filename).suffix and media_type in _DOCUMENT_MIME_TO_EXT:
-                        filename = f"{filename}{_DOCUMENT_MIME_TO_EXT[media_type]}"
-                    kind, cached_path = "document", await cache_document_from_bytes_async(raw_bytes, filename)
-                    media_type = media_type or self._guess_document_media_type(filename)
-                logger.info("[Feishu] Cached message %s resource at %s", kind, cached_path)
-                return cached_path, media_type
-            except Exception:
-                logger.warning("[Feishu] Failed to cache message resource %s/%s", message_id, file_key, exc_info=True)
-        return "", ""
+        hint = "video" if resource_type in {"media", "video"} else ("audio" if resource_type == "audio" else "document")
+        result = await self._download_attachment_result(
+            message_id=message_id, file_key=file_key, resource_type="file",
+            filename=fallback_filename, media_hint=hint)
+        return (result["path"], result["mime_type"]) if result["state"] == "ready" else ("", "")
 
     # --- Static helpers — extension / media-type guessing ---
     @staticmethod
@@ -3705,27 +3711,6 @@ class FeishuAdapter(BasePlatformAdapter):
                 key_msg_type=resolved_message_type, key_payload=key_payload,
                 media_tag={"tag": "media", "file_key": file_key, "file_name": display_name},
             )
-            # Audio may fail with 99992402 under thread_id routing: retry as a reply to the
-            # thread's last message, then fall back to a plain chat_id send.
-            if (not caption
-                    and not self._response_succeeded(message_response)
-                    and getattr(message_response, "code", None) == 99992402
-                    and resolved_message_type == "audio"
-                    and (metadata or {}).get("thread_id")):
-                payload = json.dumps(key_payload, ensure_ascii=False)
-                thread_msg_id = (metadata or {}).get("reply_to_message_id")
-                if not thread_msg_id:
-                    thread_msg_id = await self._fetch_last_message_in_thread((metadata or {}).get("thread_id"))
-                if thread_msg_id:
-                    logger.info("[Feishu] Audio: retrying via reply API in thread")
-                    message_response = await self._feishu_send_with_retry(
-                        chat_id=chat_id, msg_type="audio", payload=payload, reply_to=thread_msg_id, metadata=metadata,
-                    )
-                if not self._response_succeeded(message_response):
-                    logger.warning("[Feishu] Audio send failed in thread, retrying with chat_id")
-                    message_response = await self._feishu_send_with_retry(
-                        chat_id=chat_id, msg_type="audio", payload=payload, reply_to=None, metadata=None,
-                    )
             return self._finalize_send_result(message_response, "file send failed")
         except Exception as exc:
             logger.error("[Feishu] Failed to send file %s: %s", file_path, exc, exc_info=True)
@@ -3742,8 +3727,29 @@ class FeishuAdapter(BasePlatformAdapter):
         else:
             msg_type = key_msg_type
             payload = json.dumps(key_payload, ensure_ascii=False)
+
+        thread_id = (metadata or {}).get("thread_id")
+        effective_reply_to = reply_to
+        if thread_id:
+            # Feishu rejects media sent via
+            # ``CreateMessage(receive_id_type="thread_id")`` with 99992402.  A
+            # topic is not itself a valid recipient for image/file/audio
+            # creation: media must reply to a concrete message anchor.
+            effective_reply_to = effective_reply_to or (metadata or {}).get("reply_to_message_id")
+            if not effective_reply_to:
+                effective_reply_to = await self._fetch_last_message_in_thread(thread_id)
+            if not effective_reply_to:
+                raise ValueError(
+                    f"No reply anchor for media in Feishu thread {thread_id}; "
+                    "refusing to send outside the original thread"
+                )
+
         return await self._feishu_send_with_retry(
-            chat_id=chat_id, msg_type=msg_type, payload=payload, reply_to=reply_to, metadata=metadata,
+            chat_id=chat_id,
+            msg_type=msg_type,
+            payload=payload,
+            reply_to=effective_reply_to,
+            metadata=metadata,
         )
 
     async def _fetch_last_message_in_thread(self, thread_id: str) -> Optional[str]:
@@ -3774,9 +3780,11 @@ class FeishuAdapter(BasePlatformAdapter):
             request = self._build_reply_message_request(effective_reply_to, body)
             return await self._run_blocking(self._client.im.v1.message.reply, request)
         if thread_id:
-            # reply→create fallback inside a topic: thread_id as receive_id keeps it in the topic.
-            receive_id, receive_id_type = thread_id, "thread_id"
-        elif chat_id.startswith("feishu_user_id:"):
+            raise ValueError(
+                f"No reply anchor for Feishu thread {thread_id}; "
+                "refusing to send outside the original thread"
+            )
+        if chat_id.startswith("feishu_user_id:"):
             receive_id, receive_id_type = chat_id.split(":", 1)[1], "user_id"
         else:
             receive_id, receive_id_type = chat_id, "open_id" if chat_id.startswith("ou_") else "chat_id"

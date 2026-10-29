@@ -901,7 +901,10 @@ class TestAdapterBehavior(unittest.TestCase):
         from gateway.platforms.event import MessageType
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
-        adapter = FeishuAdapter(PlatformConfig())
+        with tempfile.TemporaryDirectory() as home, patch(
+            "plugins.platforms.feishu.adapter.get_hermes_home", return_value=Path(home)
+        ):
+            adapter = FeishuAdapter(PlatformConfig())
         adapter._dispatch_inbound_event = AsyncMock()
         # Sender name now comes from the contact API; mock it to return a known value.
         adapter._resolve_sender_name_from_api = AsyncMock(return_value="张三")
@@ -937,6 +940,7 @@ class TestAdapterBehavior(unittest.TestCase):
         event = adapter._dispatch_inbound_event.await_args.args[0]
         self.assertEqual(event.message_type, MessageType.TEXT)
         self.assertEqual(event.source.user_id, "u_user")  # tenant-scoped user_id preferred over app-scoped open_id
+        self.assertEqual(event.sender_open_id, "ou_user")
         self.assertEqual(event.source.user_name, "张三")
         self.assertEqual(event.source.user_id_alt, "on_union")
         self.assertEqual(event.source.chat_name, "Feishu DM")
@@ -2036,11 +2040,10 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
         adapter._dispatch_inbound_event = AsyncMock()
         return adapter
 
-    def test_post_caption_is_preserved_when_text_attachment_is_inlined(self):
+    @patch("plugins.platforms.feishu.inbound_attachments.receive_attachments", new_callable=AsyncMock)
+    def test_post_caption_is_preserved_when_text_attachment_is_inlined(self, receive):
         adapter = self._build_adapter()
-        adapter._download_feishu_message_resources = AsyncMock(
-            return_value=(["/cache/notes.md"], ["text/markdown"])
-        )
+        receive.return_value = (["/cache/notes.md"], ["text/markdown"], "")
         adapter._maybe_extract_text_document = AsyncMock(
             return_value="[Content of notes.md]:\nattachment body"
         )
