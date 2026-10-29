@@ -27,8 +27,6 @@ jobs:
           - platform: windows
             runner: windows-latest
     env:
-      HERMES_HOME: ${{ runner.temp }}/fork-home
-      HERMES_RUNTIME_DIR: ${{ runner.temp }}/fork-runtime
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       POLICY_SHA256: 53fb9406eed749d4291114578059e63334dffe080482569a0e1dfccc2e9a4c25
     defaults:
@@ -40,6 +38,10 @@ jobs:
           ref: ${{ env.EXPECTED_SHA }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Isolate mutable Hermes state
+        run: |
+          echo "HERMES_HOME=$RUNNER_TEMP/fork-home" >> "$GITHUB_ENV"
+          echo "HERMES_RUNTIME_DIR=$RUNNER_TEMP/fork-runtime" >> "$GITHUB_ENV"
       - name: Set up locked dependencies without production configuration
         uses: ./.github/actions/setup-pm
         with:
