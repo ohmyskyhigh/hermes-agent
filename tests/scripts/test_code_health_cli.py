@@ -232,6 +232,7 @@ def _remote_ref(remote: Path, branch: str) -> str:
     return _git(remote, "for-each-ref", "--format=%(objectname)", f"refs/heads/{branch}")
 
 
+@pytest.mark.require_symlinks
 def test_pre_push_judges_a_checker_branch_pushed_from_an_older_checkout(tmp_path):
     repo, remote = _pushable(tmp_path)
     _branch_with_checker(repo, "feature", {"pkg/c.py": _SWALLOW})
@@ -260,6 +261,7 @@ def test_pre_push_judges_a_checker_branch_pushed_from_an_older_checkout(tmp_path
 # --- M5: interpreter choice and the version guard ---------------------------------------------
 
 
+@pytest.mark.require_symlinks
 def test_hooks_prefer_the_repo_virtualenv_over_path_python(tmp_path):
     repo = _engine_repo(tmp_path)
     assert _check(repo, "--install-hook", "pre-commit").returncode == 0
@@ -348,6 +350,7 @@ def test_a_branch_cannot_relax_its_own_switch(tmp_path, monkeypatch, capsys):
 # --- F23: the hooks under Git for Windows with MSYS path conversion disabled -----------------
 
 
+@pytest.mark.require_symlinks
 def test_hooks_run_with_msys_path_conversion_disabled(tmp_path):
     """Hermes' Windows terminal exports both variables, so native git and python see the hook's
     paths verbatim: a POSIX `/c/...` temp path then reaches them unconverted. Inert elsewhere."""

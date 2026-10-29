@@ -206,6 +206,7 @@ class TestStdioPidTracking:
 # The fix captures the wrapper's pgid at spawn time and reaps via killpg,
 # which reaches same-group descendants whether or not the direct pid is alive.
 
+@pytest.mark.platforms("posix")
 class TestStdioPgroupReaping:
     """_kill_orphaned_mcp_children reaps via killpg when a pgid is tracked."""
 
