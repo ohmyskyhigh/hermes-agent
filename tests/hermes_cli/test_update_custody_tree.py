@@ -16,6 +16,9 @@ import time
 from pathlib import Path
 
 import pytest
+import psutil
+
+from tests.waiting import wait_until
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,13 +30,12 @@ def _env() -> dict:
 
 def _alive(pid: int) -> bool:
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        process = psutil.Process(pid)
+        return process.is_running() and process.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+    except psutil.NoSuchProcess:
         return False
-    if Path(f"/proc/{pid}/stat").exists():  # Linux: a zombie is dead
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-        return stat[stat.rfind(")") + 2:][:1] != "Z"
-    return True
+    except psutil.AccessDenied:
+        return True  # An unobservable process must not satisfy the cleanup assertion.
 
 
 def _gone_within(pid: int, seconds: float) -> bool:
@@ -43,6 +45,34 @@ def _gone_within(pid: int, seconds: float) -> bool:
             return True
         time.sleep(0.05)
     return False
+
+
+def test_liveness_distinguishes_a_real_running_child_from_a_reaped_one():
+    child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"],
+                             stdin=subprocess.PIPE)
+    try:
+        assert _alive(child.pid)
+        child.stdin.write(b"x")
+        child.stdin.flush()
+        child.wait(timeout=10)
+        assert not _alive(child.pid)
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait(timeout=10)
+        child.stdin.close()
+
+
+@pytest.mark.platforms("posix")
+def test_an_unreaped_real_zombie_cannot_still_write_the_checkout():
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        # Do not poll/wait through Popen here: that would reap the state being checked.
+        wait_until(lambda: psutil.Process(child.pid).status() == psutil.STATUS_ZOMBIE,
+                   timeout=10, what="child exits while its parent still owns the wait handle")
+        assert not _alive(child.pid)
+    finally:
+        child.wait(timeout=10)
 
 
 @pytest.fixture
