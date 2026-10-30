@@ -55,6 +55,31 @@ jobs:
       - name: Canonical static checks
         if: runner.os == 'Linux'
         run: '"$HERMES_PYTHON" scripts/check'
+      # The canonical runner preserves HERMES_TEST_IMAGE specifically so
+      # per-file pytest processes do not rebuild the same 5GB image concurrently.
+      - name: Prepare the exact candidate Docker test image once
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          mkdir -p "$RUNNER_TEMP/fork-evidence"
+          docker build --iidfile "$RUNNER_TEMP/fork-test-image.id" \
+            --label "org.opencontainers.image.revision=$EXPECTED_SHA" \
+            -t "hermes-fork-validation:$EXPECTED_SHA" .
+          image_id="$(cat "$RUNNER_TEMP/fork-test-image.id")"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" = "$EXPECTED_SHA"
+          export HERMES_TEST_IMAGE="$image_id"
+          echo "HERMES_TEST_IMAGE=$image_id" >> "$GITHUB_ENV"
+          "$HERMES_PYTHON" - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          image = os.environ["HERMES_TEST_IMAGE"]
+          assert re.fullmatch(r"sha256:[0-9a-f]{64}", image)
+          proof = {"commit": os.environ["EXPECTED_SHA"],
+                   "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+                   "image_id": image, "revision_label_verified": True,
+                   "build_count": 1, "preparation_timeout_seconds": 600}
+          (Path(os.environ["RUNNER_TEMP"]) / "fork-evidence" / "docker-image.json").write_text(json.dumps(proof) + "\n", encoding="utf-8")
+          PY
       - name: Verify exact candidate and run externally pinned regression list
         run: |
           "$HERMES_PYTHON" scripts/ci/fork_validation.py --bash "$BASH" \
