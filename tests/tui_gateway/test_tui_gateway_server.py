@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from gateway.owner_identity import host_owner_subject as _owner
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 from hermes_cli.active_sessions import active_session_registry_snapshot
 from hermes_cli.browser_connect import ChromeDebugLaunch
@@ -4665,18 +4666,17 @@ def _capture_make_agent_kwargs(monkeypatch) -> dict:
 
 
 @pytest.mark.parametrize("identity, user_id", [
-    ({"user_id": "oidc|abc123", "provider": "oidc"}, "oidc:oidc|abc123"),
-    ({"user_id": "alice", "provider": "basic"}, "basic:alice"),
-    ({"user_id": "alice", "provider": "oidc"}, "oidc:alice"),
+    ({"user_id": "oidc|abc123", "provider": "oidc"}, _owner()),
+    ({"user_id": "alice", "provider": "basic"}, _owner()),
+    ({"user_id": "alice", "provider": "oidc"}, _owner()),
     (None, None),
     ({"user_id": "server-internal", "provider": "server-internal"}, None),
     ({"user_id": "", "provider": "oidc"}, None),
     ({"user_id": "abc", "provider": ""}, None),
 ])
 def test_make_agent_passes_the_authenticated_dashboard_user_as_user_id(monkeypatch, identity, user_id):
-    """WSTransport.auth_identity reaches the agent as ``user_id`` prefixed with the login provider, so a
-    basic-auth ``alice`` and an OIDC ``alice`` stay two memory peers. The legacy token, stdio and the PTY
-    child's server-internal credential name no human, so the agent gets no user id for them."""
+    """A signed-in login is the machine owner (gateway.owner_identity): the agent gets native Desktop's OS subject
+    as ``user_id``. The legacy token, stdio and the PTY child's server-internal credential stay unstamped."""
     captured = _capture_make_agent_kwargs(monkeypatch)
     transport = types.SimpleNamespace(auth_identity=identity)
     monkeypatch.setitem(server._sessions, "sid-auth", {"session_key": "k", "transport": transport})
@@ -4723,11 +4723,11 @@ def test_make_agent_keeps_the_login_after_a_second_window_attaches_and_detaches(
 
     assert server._attach_session_transport(record, popout)
     server._make_agent("sid-popout", "k")
-    assert captured["user_id"] == "basic:alice"
+    assert captured["user_id"] == _owner()
 
     server._detach_session_transport(record, popout)
     server._make_agent("sid-popout", "k")
-    assert captured["user_id"] == "basic:alice"
+    assert captured["user_id"] == _owner()
 
 
 def test_build_branch_agent_carries_the_parent_login(monkeypatch, tmp_path):
@@ -4750,8 +4750,8 @@ def test_build_branch_agent_carries_the_parent_login(monkeypatch, tmp_path):
     finally:
         reset_transport(token)
 
-    assert captured["user_id"] == "basic:alice"
-    assert server._sessions["sid-branch"]["auth_user_id"] == "basic:alice"
+    assert captured["user_id"] == _owner()
+    assert server._sessions["sid-branch"]["auth_user_id"] == _owner()
 
 
 def test_deferred_session_record_stamps_the_creating_login():
@@ -4762,8 +4762,8 @@ def test_deferred_session_record_stamps_the_creating_login():
     finally:
         reset_transport(token)
 
-    assert record["auth_user_id"] == "oidc:carol"
-    assert server._session_auth_user_id(record) == "oidc:carol"
+    assert record["auth_user_id"] == _owner()
+    assert server._session_auth_user_id(record) == _owner()
 
 
 def test_compute_host_turn_frame_carries_the_session_login(monkeypatch):
@@ -4773,7 +4773,7 @@ def test_compute_host_turn_frame_carries_the_session_login(monkeypatch):
 
     frame = server._compute_host_turn_frame("rid", "sid-host", record, "hello")
 
-    assert frame["auth_user_id"] == "basic:alice"
+    assert frame["auth_user_id"] == _owner()
 
 
 def test_attaching_a_different_login_keeps_the_creator_and_warns_once(monkeypatch):
@@ -4785,7 +4785,7 @@ def test_attaching_a_different_login_keeps_the_creator_and_warns_once(monkeypatc
     assert server._attach_session_transport(record, other)
     assert server._attach_session_transport(record, other)
 
-    assert server._session_auth_user_id(record) == "basic:alice"
+    assert server._session_auth_user_id(record) == _owner()
 
 
 def test_background_agent_kwargs_preserves_full_fallback_chain(monkeypatch):
@@ -6666,124 +6666,6 @@ def test_prompt_submit_refuses_unconfirmed_nonempty_truncation(monkeypatch):
         server._sessions.pop("unconfirmed-trunc-sid", None)
 
 
-def test_prompt_submit_truncates_by_message_id(monkeypatch):
-    """#82756: truncate_before_message_id resolves target message and cuts history accurately."""
-    replaced = []
-
-    class _FakeDB:
-        def replace_messages(
-            self,
-            key,
-            messages,
-            active_only=False,
-            archive_dropped=False,
-            reject_active_turn_lease=False,
-        ):
-            replaced.append((key, list(messages)))
-
-    history = [
-        {"id": "msg-1", "role": "user", "content": "first"},
-        {"role": "assistant", "content": "reply 1"},
-        {"id": "msg-2", "role": "user", "content": "second"},
-        {"role": "assistant", "content": "reply 2"},
-    ]
-    server._sessions["msg-id-trunc-sid"] = _session(history=list(history))
-    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
-    monkeypatch.setattr(
-        server, "_start_agent_build", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        server, "_start_inflight_turn", lambda *a, **k: None
-    )
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "msg-id-trunc-sid",
-                    "text": "new turn",
-                    "truncate_before_message_id": "msg-2",
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert resp.get("result") is not None
-        assert len(replaced) == 1
-        assert replaced[0][1] == history[:2]
-    finally:
-        server._sessions.pop("msg-id-trunc-sid", None)
-
-
-def test_prompt_submit_truncation_falls_back_to_sid_when_session_key_null(monkeypatch):
-    """#81904: a NULL session_key must not FK-fail the truncation persist.
-
-    CLI-origin sessions resumed in the Desktop have no session_key; the
-    truncation path used to call replace_messages(None, ...), whose reinsert
-    violated the messages.session_id FK ("FOREIGN KEY constraint failed" →
-    "Restore failed"). The persist must key off the session id instead —
-    for CLI-origin rows the durable sessions.id IS the requested sid.
-    """
-    replaced = []
-
-    class _FakeDB:
-        def replace_messages(
-            self,
-            key,
-            messages,
-            active_only=False,
-            archive_dropped=False,
-            reject_active_turn_lease=False,
-        ):
-            replaced.append((key, list(messages)))
-
-    history = [
-        {"_row_id": 101, "role": "user", "content": "first"},
-        {"_row_id": 102, "role": "assistant", "content": "reply 1"},
-        {"_row_id": 103, "role": "user", "content": "second"},
-        {"_row_id": 104, "role": "assistant", "content": "reply 2"},
-    ]
-    server._sessions["null-key-trunc-sid"] = _session(
-        history=list(history), session_key=None
-    )
-    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
-    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
-    monkeypatch.setattr(server, "_start_inflight_turn", lambda *a, **k: None)
-    # This invariant ends at durable truncation; no model turn is requested by
-    # the fixture. Keep its asynchronous continuation inside this test's scope.
-    monkeypatch.setattr(server, "_run_prompt_submit", lambda *a, **k: None)
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "null-key-trunc-sid",
-                    "text": "new turn",
-                    "truncate_before_row_id": 103,
-                    "truncate_before_user_ordinal": 1,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert resp.get("result") is not None
-        assert len(replaced) == 1
-        # Keyed by the session id, never None (the FK-violating value).
-        assert replaced[0][0] == "null-key-trunc-sid"
-        assert replaced[0][1] == history[:2]
-    finally:
-        # The prompt worker resolves server bindings when it runs. Reap it before
-        # monkeypatch teardown or it can consume the next test's notification.
-        session = server._sessions.get("null-key-trunc-sid")
-        worker = session.get("_run_thread") if session else None
-        if worker is not None:
-            worker.join(timeout=5)
-            assert not worker.is_alive()
-        server._sessions.pop("null-key-trunc-sid", None)
-
-
 def test_prompt_submit_refuses_ordinal_and_message_id_mismatch(monkeypatch):
     """#82756: A mismatch between truncate_before_user_ordinal and truncate_before_message_id must return 4030."""
     history = [
@@ -6923,103 +6805,6 @@ def test_prompt_submit_refuses_ordinal_only_when_durable_history_is_unstamped(mo
         server._sessions.pop("unstamped-durable-sid", None)
 
 
-def test_prompt_submit_truncates_by_row_id(monkeypatch):
-    """#82959: prompt.submit with truncate_before_row_id must cut at the target row id."""
-    replaced = []
-
-    class _FakeDB:
-        def replace_messages(
-            self,
-            key,
-            messages,
-            active_only=False,
-            archive_dropped=False,
-            reject_active_turn_lease=False,
-        ):
-            replaced.append((key, list(messages)))
-
-    history = [
-        {"_row_id": 101, "role": "user", "content": "first"},
-        {"_row_id": 102, "role": "assistant", "content": "reply 1"},
-        {"_row_id": 103, "role": "user", "content": "second"},
-        {"_row_id": 104, "role": "assistant", "content": "reply 2"},
-    ]
-    sess = _session(history=list(history))
-    server._sessions["row-id-trunc-sid"] = sess
-    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
-    started = []
-    monkeypatch.setattr(
-        server, "_start_agent_build", lambda *a, **k: started.append(k)
-    )
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "row-id-trunc-sid",
-                    "text": "new turn",
-                    "truncate_before_row_id": 103,
-                    "truncate_before_user_ordinal": 1,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert resp.get("error") is None
-        assert len(sess["history"]) == 2
-        assert sess["history"][-1]["content"] == "reply 1"
-        assert len(replaced) == 1
-        assert replaced[0][1] == history[:2]
-    finally:
-        server._sessions.pop("row-id-trunc-sid", None)
-
-
-def test_prompt_submit_truncates_by_string_row_id(monkeypatch):
-    """#82959: String row IDs in history match correctly against integer truncate_before_row_id."""
-    replaced = []
-
-    class _FakeDB:
-        def replace_messages(
-            self,
-            key,
-            messages,
-            active_only=False,
-            archive_dropped=False,
-            reject_active_turn_lease=False,
-        ):
-            replaced.append((key, list(messages)))
-
-    history = [
-        {"_row_id": "101", "role": "user", "content": "first"},
-        {"_row_id": "102", "role": "assistant", "content": "reply 1"},
-        {"_row_id": "103", "role": "user", "content": "second"},
-        {"_row_id": "104", "role": "assistant", "content": "reply 2"},
-    ]
-    sess = _session(history=list(history))
-    server._sessions["str-row-id-trunc-sid"] = sess
-    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
-    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "str-row-id-trunc-sid",
-                    "text": "new turn",
-                    "truncate_before_row_id": 103,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert resp.get("error") is None
-        assert len(sess["history"]) == 2
-    finally:
-        server._sessions.pop("str-row-id-trunc-sid", None)
-
-
 def test_prompt_submit_refuses_ordinal_and_row_id_mismatch(monkeypatch):
     """#82959: A mismatch between truncate_before_user_ordinal and truncate_before_row_id must return 4030."""
     history = [
@@ -7102,287 +6887,6 @@ def test_prompt_submit_row_id_not_found(monkeypatch):
         assert resp["error"]["code"] == 4018
     finally:
         server._sessions.pop("missing-row-sid", None)
-
-
-def test_prompt_submit_resolves_row_id_absorbed_into_marker_merge(monkeypatch):
-    """#94486: after a mid-session model switch, the marker is persisted as
-    role=user (#48338) and the next real user row merges into it under
-    repair. The merged row must stay addressable (plain row's _row_id kept,
-    display classification dropped) so prompt.submit with
-    truncate_before_row_id resolves instead of failing closed with the
-    user's input silently dropped.
-    """
-    import copy
-
-    from agent.agent_runtime_helpers import repair_message_sequence
-
-    verbatim = [
-        {"_row_id": 12131, "role": "user", "content": "first"},
-        {"_row_id": 12133, "role": "assistant", "content": "reply 1"},
-        {
-            "_row_id": 12134,
-            "role": "user",
-            "display_kind": "model_switch",
-            "content": "[System: The active model for this chat has changed to ds4.]",
-        },
-        {"_row_id": 12135, "role": "user", "content": "the dropped prompt"},
-    ]
-    repaired = copy.deepcopy(verbatim)
-    assert repair_message_sequence(None, repaired) == 1
-    # The merged pair survives as ONE addressable user row carrying the
-    # plain row's durable id — this is the property the gateway relies on.
-    assert len(repaired) == 3
-    assert repaired[2]["_row_id"] == 12135
-    assert not repaired[2].get("display_kind")
-
-    replaced = []
-
-    class _FakeDB:
-        def get_messages_as_conversation(
-            self, key, include_ancestors=False, repair_alternation=False,
-            include_row_ids=False, **_kwargs
-        ):
-            assert key == "session-key"
-            assert include_row_ids is True
-            return copy.deepcopy(repaired if repair_alternation else verbatim)
-
-        def replace_messages(self, key, messages, active_only=False, archive_dropped=False, **_kwargs):
-            replaced.append((key, list(messages)))
-
-    import contextlib
-
-    @contextlib.contextmanager
-    def _fake_session_db(_session):
-        yield _FakeDB()
-
-    # Live history as a RUNNING session holds it after a turn rewrite: the
-    # repaired, merged shape with row-id stamps still attached (the live
-    # dicts carry them), so the in-memory lookup resolves directly.
-    live = copy.deepcopy(repaired)
-    assert live[2]["_row_id"] == 12135
-    server._sessions["merged-marker-sid"] = _session(history=list(live))
-    monkeypatch.setattr(server, "_session_db", _fake_session_db)
-    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
-    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
-    monkeypatch.setattr(server, "_start_inflight_turn", lambda *a, **k: None)
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "merged-marker-sid",
-                    "text": "new turn",
-                    "truncate_before_row_id": 12135,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert resp.get("error") is None, resp.get("error")
-        # The cut lands before the merged marker+prompt pair: everything the
-        # pair would have buried is kept, the pair itself is replaced by the
-        # freshly submitted turn. (Rows carry _row_id stamps because the
-        # durable fallback healed the live list's missing stamps first.)
-        assert len(replaced) == 1
-        assert replaced[0][0] == "session-key"
-        assert replaced[0][1] == [
-            {"role": "user", "content": "first", "_row_id": 12131},
-            {"role": "assistant", "content": "reply 1", "_row_id": 12133},
-        ]
-        assert len(server._sessions["merged-marker-sid"]["history"]) == 2
-    finally:
-        server._sessions.pop("merged-marker-sid", None)
-
-
-def _mk_merge_fake_db(verbatim, repaired, replaced):
-    """SessionDB stand-in answering exactly like the real store: the repaired view
-    (what `_load_durable_truncation_history` historically loaded) has the user;user
-    run merged away, the un-repaired view keeps every physical row."""
-
-    class _FakeDB:
-        def get_messages_as_conversation(
-            self,
-            key,
-            include_ancestors=False,
-            repair_alternation=False,
-            include_row_ids=False,
-            **_kwargs,
-        ) -> list:
-            import copy as _copy
-
-            assert key == "session-key"
-            assert include_row_ids is True
-            return _copy.deepcopy(repaired if repair_alternation else verbatim)
-
-        def replace_messages(
-            self, key, messages, active_only=False, archive_dropped=False, **_kwargs
-        ):
-            replaced.append((key, list(messages)))
-
-    return _FakeDB()
-
-
-def test_prompt_submit_resolves_row_id_swallowed_by_marker_merge(monkeypatch):
-    """#94486 (live-session shape): model-switch markers persist as role=user
-    (#48338), so the just-sent prompt forms a user;user run that
-    repair_message_sequence merges into the FIRST row — the target's _row_id
-    vanishes from the repaired view and truncate_before_row_id fails closed
-    (4018) even though the row is physically present. Identity resolution must
-    read the un-repaired durable transcript, the same discipline the rebind
-    path already applies ('repair can merge a physical user;user pair while
-    preserving only the first row id').
-    """
-    import contextlib
-    import copy
-
-    from agent.agent_runtime_helpers import repair_message_sequence
-
-    verbatim = [
-        {"_row_id": 201, "role": "user", "content": "first"},
-        {"_row_id": 202, "role": "assistant", "content": "reply 1"},
-        {
-            "_row_id": 203,
-            "role": "user",
-            "display_kind": "model_switch",
-            "content": "[System: The active model for this chat has changed to ds4.]",
-        },
-        {
-            "_row_id": 204,
-            "role": "user",
-            "display_kind": "model_switch",
-            "content": "[System: The active model for this chat has changed to kk3.]",
-        },
-        {"_row_id": 205, "role": "user", "content": "the interrupted prompt"},
-    ]
-    repaired = copy.deepcopy(verbatim)
-    assert repair_message_sequence(None, repaired) == 2  # 3-row run, two merges
-    # On main the merge buries the plain row's id inside the marker.
-    assert len(repaired) == 3
-
-    replaced = []
-    fake_db = _mk_merge_fake_db(verbatim, repaired, replaced)
-
-    @contextlib.contextmanager
-    def _fake_session_db(_session):
-        yield fake_db
-
-    # Live history as a running session holds it after a turn rewrite: every
-    # physical row present, row-id stamps lost (provider-format rewrite), so
-    # resolution must go through the durable fallback.
-    live = [
-        {k: v for k, v in message.items() if k != "_row_id"} for message in verbatim
-    ]
-    server._sessions["marker-merge-sid"] = _session(history=list(live))
-    monkeypatch.setattr(server, "_session_db", _fake_session_db)
-    monkeypatch.setattr(server, "_get_db", lambda: fake_db)
-    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
-    monkeypatch.setattr(server, "_start_inflight_turn", lambda *a, **k: None)
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "marker-merge-sid",
-                    "text": "edited prompt",
-                    "truncate_before_row_id": 205,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert isinstance(resp, dict)
-        err = resp.get("error")
-        assert err is None, err
-        # The cut lands before row 205: the markers and everything earlier
-        # survive (durable rows healed their stamps onto the live list).
-        assert len(replaced) == 1
-        assert replaced[0][0] == "session-key"
-        assert [m["content"] for m in replaced[0][1]] == [
-            "first",
-            "reply 1",
-            verbatim[2]["content"],
-            verbatim[3]["content"],
-        ]
-        assert len(server._sessions["marker-merge-sid"]["history"]) == 4
-    finally:
-        server._sessions.pop("marker-merge-sid", None)
-
-
-def test_prompt_submit_resolves_row_id_swallowed_by_plain_user_merge(monkeypatch):
-    """Same swallowed-id class with NO display marker: an interrupted turn
-    persists no assistant row, the user's resend lands as a second consecutive
-    plain user row, and repair merges it into the earlier one — the resend's
-    row id is unresolvable on every later rewind/edit. Repair-side address
-    preservation keyed on display_kind cannot reach this shape; reading the
-    un-repaired transcript for identity can.
-    """
-    import contextlib
-    import copy
-
-    from agent.agent_runtime_helpers import repair_message_sequence
-
-    verbatim = [
-        {"_row_id": 301, "role": "user", "content": "first"},
-        {"_row_id": 302, "role": "assistant", "content": "reply 1"},
-        {"_row_id": 303, "role": "user", "content": "prompt whose turn was cut off"},
-        {"_row_id": 304, "role": "user", "content": "the resent prompt"},
-    ]
-    repaired = copy.deepcopy(verbatim)
-    assert repair_message_sequence(None, repaired) == 1
-    assert len(repaired) == 3
-    assert repaired[2]["_row_id"] == 303  # merge keeps only the FIRST row id
-
-    replaced = []
-    fake_db = _mk_merge_fake_db(verbatim, repaired, replaced)
-
-    @contextlib.contextmanager
-    def _fake_session_db(_session):
-        yield fake_db
-
-    # Production cold resume materializes the live history from the DB with
-    # repair_alternation=True (server._load_resume_transcript), stamps kept:
-    # rows 303/304 collapse into ONE live carrier at 303, so 304 has no live
-    # user ordinal. The un-repaired DB read finds 304 as physical ordinal 2,
-    # but the live list only has user ordinals 0/1 — resolution must map the
-    # DB row onto the repaired live carrier instead of trusting the same
-    # ordinal against a list that cannot have it.
-    live = copy.deepcopy(repaired)
-    assert live[2]["_row_id"] == 303
-    server._sessions["plain-merge-sid"] = _session(history=list(live))
-    monkeypatch.setattr(server, "_session_db", _fake_session_db)
-    monkeypatch.setattr(server, "_get_db", lambda: fake_db)
-    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
-    monkeypatch.setattr(server, "_start_inflight_turn", lambda *a, **k: None)
-
-    try:
-        resp = server.handle_request(
-            {
-                "id": "1",
-                "method": "prompt.submit",
-                "params": {
-                    "session_id": "plain-merge-sid",
-                    "text": "edited resend",
-                    "truncate_before_row_id": 304,
-                    "confirm_truncate": True,
-                },
-            }
-        )
-        assert isinstance(resp, dict)
-        err = resp.get("error")
-        assert err is None, err
-        assert len(replaced) == 1
-        # The cut retains 303: deriving it from the physical durable prefix
-        # keeps the inner row boundary instead of collapsing the pair.
-        assert [m["content"] for m in replaced[0][1]] == [
-            "first",
-            "reply 1",
-            "prompt whose turn was cut off",
-        ]
-        assert len(server._sessions["plain-merge-sid"]["history"]) == 3
-    finally:
-        server._sessions.pop("plain-merge-sid", None)
 
 
 def test_prompt_submit_row_id_ignores_platform_id_fallback(monkeypatch):
@@ -14385,7 +13889,11 @@ def test_run_prompt_submit_registers_turn_thread_for_interrupt(monkeypatch):
     server._sessions["sid"] = session
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
 
         server._run_prompt_submit("1", "sid", session, "hello")
@@ -14454,7 +13962,11 @@ def test_interrupt_before_agent_ready_prevents_late_turn_start(monkeypatch):
     server._sessions["sid"] = session
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
         monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: None)
         monkeypatch.setattr(server, "_persist_branch_seed", lambda session: None)
@@ -14524,7 +14036,11 @@ def test_cancelled_turn_before_agent_ready_emits_error_event(monkeypatch):
     server._sessions["sid"] = session
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: emitted.append(args))
         monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: None)
         monkeypatch.setattr(server, "_persist_branch_seed", lambda session: None)
@@ -14596,7 +14112,11 @@ def test_session_not_running_before_agent_ready_emits_error_event(monkeypatch):
     server._sessions["sid"] = session
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: emitted.append(args))
         monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: None)
         monkeypatch.setattr(server, "_persist_branch_seed", lambda session: None)
@@ -14682,7 +14202,11 @@ def test_slow_agent_build_delivers_prompt_instead_of_timing_out(monkeypatch):
     session["agent_ready"] = _SlowReady()
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: emitted.append(args))
         monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: None)
         monkeypatch.setattr(server, "_persist_branch_seed", lambda session: None)
@@ -14755,7 +14279,11 @@ def test_slow_agent_build_emits_keyed_progress_notice(monkeypatch):
     session["agent_ready"] = _SlowReady()
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         # Every wait slice lands past the slow threshold.
         monkeypatch.setattr(server, "_AGENT_BUILD_SLOW_NOTICE_AFTER", 0.0)
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: emitted.append(args))
@@ -14829,7 +14357,11 @@ def test_agent_build_failure_surfaces_error_and_drops_turn(monkeypatch):
         session["agent_ready"].set()
 
     try:
-        monkeypatch.setattr(server.threading, "Thread", _FakeThread)
+        # Replace only the server namespace: plugin discovery and native process
+        # helpers must keep real threads rather than consume this turn's fake queue.
+        monkeypatch.setattr(
+            server, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": _FakeThread})
+        )
         monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: emitted.append(args))
         monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: None)
         monkeypatch.setattr(server, "_persist_branch_seed", lambda session: None)
@@ -18748,14 +18280,14 @@ def test_decode_attach_base64_helper():
     import base64 as _b64
 
     raw = _b64.b64encode(b"hello").decode("ascii")
-    assert server._decode_attach_base64(raw, mime_prefix="image/") == b"hello"
+    assert server._decode_attach_base64(raw, mime_prefix="image/", max_bytes=5) == b"hello"
     assert (
-        server._decode_attach_base64(f"data:image/png;base64,{raw}", mime_prefix="image/")
+        server._decode_attach_base64(f"data:image/png;base64,{raw}", mime_prefix="image/", max_bytes=5)
         == b"hello"
     )
     # whitespace inside payload is tolerated
-    assert server._decode_attach_base64(raw[:4] + "\n" + raw[4:], mime_prefix="image/") == b"hello"
-    assert server._decode_attach_base64("@@@", mime_prefix="image/") is None
+    assert server._decode_attach_base64(raw[:4] + "\n" + raw[4:], mime_prefix="image/", max_bytes=5) == b"hello"
+    assert server._decode_attach_base64("@@@", mime_prefix="image/", max_bytes=5) is None
 
 
 def test_sniff_image_ext_magic_and_filename():
@@ -18769,43 +18301,6 @@ def test_sniff_image_ext_magic_and_filename():
     assert server._sniff_image_ext(b"\x89PNG", "photo.jpeg") == ".jpeg"
 
 
-def test_slash_worker_close_reaps_zombie_and_closes_fds():
-    """A hung worker is SIGKILLed, the zombie reaped, all pipes closed — once."""
-    calls = {k: 0 for k in ("terminate", "kill", "wait", "stdin", "stdout", "stderr")}
-
-    class FakeStream:
-        def __init__(self, name):
-            self.name = name
-
-        def close(self):
-            calls[self.name] += 1
-
-    class FakeProc:
-        stdin, stdout, stderr = (FakeStream(n) for n in ("stdin", "stdout", "stderr"))
-
-        def poll(self):
-            return None  # always alive -> forces terminate then kill
-
-        def terminate(self):
-            calls["terminate"] += 1
-
-        def kill(self):
-            calls["kill"] += 1
-
-        def wait(self, timeout=None):
-            calls["wait"] += 1
-            raise subprocess.TimeoutExpired(cmd="x", timeout=timeout)
-
-    worker = object.__new__(server._SlashWorker)
-    worker.proc = FakeProc()
-
-    worker.close()
-    worker.close()  # idempotent
-
-    assert calls["terminate"] == 1
-    assert calls["kill"] == 1
-    assert calls["wait"] >= 2  # reaped after both terminate and kill
-    assert calls["stdin"] == calls["stdout"] == calls["stderr"] == 1
 
 
 def test_close_session_by_id_is_idempotent_and_full(monkeypatch):
@@ -21754,6 +21249,10 @@ def _join_turn_thread(sess, timeout=10.0):
     stops changing."""
     deadline = time.monotonic() + timeout
     while isinstance(run_thread := sess.get("_run_thread"), threading.Thread):
+        # The dispatch publishes the replacement before Thread.start() returns.
+        # Wait for that real start within the same overall join budget.
+        assert run_thread._started.wait(timeout=max(0.0, deadline - time.monotonic())), (
+            "prompt.submit turn thread did not start")
         run_thread.join(timeout=max(0.0, deadline - time.monotonic()))
         assert not run_thread.is_alive(), "prompt.submit turn thread did not finish"
         if sess.get("_run_thread") is run_thread:

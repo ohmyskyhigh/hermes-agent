@@ -350,7 +350,20 @@ def _write_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.c18tmp")
     tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    from tests.waiting import wait_until
+
+    def published() -> bool:
+        try:
+            os.replace(tmp, path)
+            return True
+        except PermissionError as exc:
+            # The live RPC process can be reading this fixture on Windows. Preserve an
+            # atomic new inode; retry only native contention and never overwrite in place.
+            if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32, 33):
+                raise
+            return False
+
+    wait_until(published, what=f"atomic fixture publication after readers close: {path}")
 
 
 def _read(path: Path) -> str:
@@ -388,15 +401,16 @@ def _quiet():
 
 class ReadFaults:
     """Counts every read of config.yaml through the lowest-level YAML read seam
-    (``hermes_cli.config.fast_safe_load`` — every config.yaml reader in hermes_cli.config,
-    ``read_user_config_raw`` and therefore tui_gateway go through it) and fails chosen reads with
-    a transient ``EMFILE`` on an otherwise intact file."""
+    (``utils.fast_safe_load``, called by the file config backend that every config.yaml reader —
+    hermes_cli.config, ``read_user_config_raw`` and therefore tui_gateway — goes through) and fails
+    chosen reads with a transient ``EMFILE`` on an otherwise intact file."""
 
     def __init__(self, monkeypatch, config_path: Path):
         self.path = os.path.abspath(str(config_path))
         self.count = 0
         self.fail_at: set[int] = set()
-        real = C.fast_safe_load
+        import utils
+        real = utils.fast_safe_load
 
         def wrapped(stream):
             name = getattr(stream, "name", None)
@@ -405,7 +419,7 @@ class ReadFaults:
                 if self.count in self.fail_at:
                     raise OSError(errno.EMFILE, "Too many open files (C18 injected)")
             return real(stream)
-        monkeypatch.setattr(C, "fast_safe_load", wrapped)
+        monkeypatch.setattr(utils, "fast_safe_load", wrapped)
 
     def arm(self, *ks: int) -> None:
         self.count, self.fail_at = 0, set(ks)
@@ -951,8 +965,8 @@ _PERSISTENT_FAULTS = {
 @pytest.mark.parametrize("fault", sorted(_PERSISTENT_FAULTS))
 @pytest.mark.parametrize("op_name", list(_P3_OPS))
 def test_p3_unreadable_or_partial_file_is_never_rewritten(op_name, fault, web_app, home, monkeypatch):
-    if fault == "unreadable" and os.geteuid() == 0:
-        pytest.skip("root reads mode-000 files")
+    if fault == "unreadable" and (os.name == "nt" or os.geteuid() == 0):
+        pytest.skip("mode-000 readability requires an unprivileged POSIX user")
     case = gen_case(710, null_leaves=False, exclude_top={"display"})
     cfg = _cfg_path()
     ctx = {"new": "ares", "client": _client(web_app)}

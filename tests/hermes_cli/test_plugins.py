@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import hermes_yaml as yaml
+from hermes_platform.host import facts
 
 from hermes_cli.plugins import (
     ENTRY_POINTS_GROUP,
@@ -21,7 +22,7 @@ from hermes_cli.plugins import (
     get_pre_verify_continue_message,
     has_middleware,
     resolve_plugin_command_result,
-    _portable_skill_namespace,
+    _portable_data_namespace,
 )
 from hermes_cli.relay_plugin_cutover import RELAY_PLUGINS_CONFIG_ENV
 from hermes_cli.middleware import (
@@ -35,10 +36,10 @@ from hermes_cli.middleware import (
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def test_portable_skill_namespace_is_ascii_safe():
+def test_portable_data_namespace_is_ascii_safe():
     from agent.skill_utils import is_valid_namespace
 
-    namespace = _portable_skill_namespace("café/portable")
+    namespace = _portable_data_namespace("café/portable")
 
     assert namespace.isascii()
     assert is_valid_namespace(namespace)
@@ -123,7 +124,6 @@ class TestPluginDiscovery:
         self, monkeypatch, caplog
     ):
         from hermes_cli import plugins as plugins_mod
-
         manifest = PluginManifest(
             name="nemo_relay",
             key="observability/nemo_relay",
@@ -171,7 +171,7 @@ class TestPluginDiscovery:
                 "$schema": PLUGIN_SCHEMA_V1,
                 "name": "portable.test",
                 "extensions": {"com.nousresearch.hermes": {"servers": {"worker": {
-                    "app": {"darwin": {"presence": "executable", "location": str(app)}},
+                    "app": {facts.os_family(): {"presence": "executable", "location": str(app)}},
                     "requires": {"app": True},
                     "liveness": {"kind": "static"},
                 }}}},

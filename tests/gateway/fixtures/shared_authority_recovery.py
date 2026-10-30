@@ -29,7 +29,8 @@ async def verify_envelope_guards(runner, source):
     else:
         raise AssertionError('client supplied its own trusted source')
     unsupported = [
-        MessageEvent(text='MEDIA', source=source, media_urls=['/unretained/image.png']),
+        MessageEvent(text='MEDIA', source=source,
+                     media_urls=[str(Path(os.environ['HERMES_HOME']) / 'unretained' / 'image.png')]),
         MessageEvent(text='INTERNAL', source=source, internal=True),
         MessageEvent(text='RELAY', source=replace(source, delivered_via_upstream_relay=True)),
         MessageEvent(text='ROLE', source=replace(source, role_authorized=True)),

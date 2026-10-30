@@ -126,7 +126,7 @@ def _is_remote_cwd_shape(raw: str) -> bool:
     stored and git-probed relative to the gateway's own cwd)."""
     from hermes_cli.config import _is_ssh_remote_tilde_cwd
 
-    return _is_ssh_remote_tilde_cwd("ssh", raw) or os.path.isabs(raw)
+    return _is_ssh_remote_tilde_cwd("ssh", raw) or raw.startswith("/") or os.path.isabs(raw)
 
 
 def _is_container_path(raw: str) -> bool:
@@ -257,7 +257,7 @@ def _resolve_create_cwd(params: dict, source: str, profile_home) -> tuple[bool, 
         if params.get("cwd_explicit"):
             explicit_cwd = True
             session_cwd = raw_cwd
-        elif session_cwd and session_cwd == os.path.abspath(os.path.expanduser(raw_cwd)):
+        elif session_cwd and session_cwd in {raw_cwd, os.path.abspath(os.path.expanduser(raw_cwd))}:
             explicit_cwd = True
     return explicit_cwd, session_cwd, remote_cwd
 
@@ -331,6 +331,8 @@ def _is_launch_dir(cwd: str, profile_home) -> bool:
     from agent.runtime_cwd import _is_install_tree
     from hermes_constants import get_default_hermes_root, get_real_home
 
+    if cwd in {"/", "\\"}:
+        return True
     if not os.path.isabs(cwd):
         return False
     try:

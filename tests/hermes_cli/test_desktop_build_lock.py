@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,35 @@ import pytest
 
 from hermes_cli import main_desktop as cli_desktop
 from hermes_cli.desktop_build_lock import DesktopBuildLock
+
+
+@pytest.fixture(autouse=True)
+def _no_real_node_toolchain(monkeypatch):
+    """These tests are about the lock, never the build: a real ``source_build_env`` provisions
+    the PM runtime and Node over the network and ``prepare_source_dependencies`` runs node, so
+    a stalled runner network hung this file at CI's 600 s cap. Reaching either is a test bug."""
+    from hermes_cli import source_build
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("test reached the real Node toolchain (network provisioning + npm)")
+
+    monkeypatch.setattr(source_build, "source_build_env", refuse)
+    monkeypatch.setattr(source_build, "prepare_source_dependencies", refuse)
+
+
+def _read_line(proc: subprocess.Popen, timeout: float = 60) -> str:
+    """``proc.stdout.readline()`` bounded: a child stuck before it prints fails the test instead
+    of hanging it."""
+    stdout = proc.stdout
+    assert stdout is not None
+    line: list[str] = []
+    reader = threading.Thread(target=lambda: line.append(stdout.readline()), daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if not line:
+        proc.kill()
+        pytest.fail(f"child printed nothing within {timeout:.0f}s")
+    return line[0]
 
 
 def _checkout(tmp_path: Path) -> Path:
@@ -68,6 +98,7 @@ def test_desktop_build_lock_excludes_another_process(tmp_path):
         result = subprocess.run(
             [sys.executable, "-c", probe, str(tmp_path)],
             check=False,
+            timeout=60,
         )
     finally:
         holder.release()
@@ -172,6 +203,7 @@ def test_gui_releases_lock_before_packaged_electron_handoff(tmp_path, monkeypatc
     with patch("hermes_cli.main_desktop._desktop_launch_env", return_value=({}, [])), \
          patch("hermes_cli.main_desktop._register_linux_desktop_entry", return_value=None), \
          patch("hermes_cli.main_desktop.subprocess.run", side_effect=launch_after_lock_release), \
+         patch("hermes_cli.main_desktop.subprocess.Popen", side_effect=launch_after_lock_release), \
          patch("hermes_cli.main_desktop._desktop_build_needed", return_value=False), \
          pytest.raises(SystemExit) as exc:
         cli_desktop.cmd_gui(_args())
@@ -187,6 +219,11 @@ def test_gui_releases_lock_after_build_failure(tmp_path, monkeypatch, capsys):
     def failing_build(*_args, **_kwargs):
         raise RuntimeError("tsc missing: ENOTEMPTY node_modules race")
 
+    prepared: list[Path] = []
+    monkeypatch.setattr("hermes_cli.source_build.source_build_env", lambda *_a, **_kw: {"PATH": ""})
+    monkeypatch.setattr("hermes_cli.source_build.prepare_source_dependencies",
+                        lambda project_root, *_a, **_kw: prepared.append(project_root))
+
     with patch("hermes_cli.main_desktop._desktop_launch_env", return_value=({}, [])), \
          patch("hermes_cli.main_desktop._desktop_build_needed", return_value=True), \
          patch("hermes_cli.main_desktop.build_prepared_desktop", side_effect=failing_build), \
@@ -194,6 +231,7 @@ def test_gui_releases_lock_after_build_failure(tmp_path, monkeypatch, capsys):
         cli_desktop.cmd_gui(_args(build_only=True))
 
     assert exc.value.code == 1
+    assert prepared == [root], "the build failed before the step the test fails"
     successor = DesktopBuildLock(root)
     assert successor.acquire() is True, "build lock was not released after a failed build"
     successor.release()
@@ -258,8 +296,16 @@ def test_a_held_desktop_build_lock_keeps_an_updater_off_the_checkout(tmp_path):
     """C5: a direct ``hermes desktop`` build holds DesktopBuildLock while npm writes the
     checkout; an updater (UpdateLock over the same checkout) must be refused meanwhile."""
     root = _checkout(tmp_path)
-    build = DesktopBuildLock(root)
-    assert build.acquire() is True
+    holder_code = (
+        "import sys\nfrom pathlib import Path\n"
+        "from hermes_cli.desktop_build_lock import DesktopBuildLock\n"
+        "lock = DesktopBuildLock(Path(sys.argv[1]))\n"
+        "assert lock.acquire()\nprint('held', flush=True)\nsys.stdin.read()\n"
+    )
+    # Independent actors must be siblings: Windows deliberately lets update children join
+    # their ancestor's checkout custody while rebuilding the desktop.
+    holder = subprocess.Popen([sys.executable, "-c", holder_code, str(root)],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
     probe = (
         "import sys\n"
         "from pathlib import Path\n"
@@ -268,10 +314,11 @@ def test_a_held_desktop_build_lock_keeps_an_updater_off_the_checkout(tmp_path):
         "raise SystemExit(23 if not lock.acquire() else 0)\n"
     )
     try:
+        assert _read_line(holder).strip() == "held"
         result = subprocess.run([sys.executable, "-c", probe, str(root), str(tmp_path / "marker")],
                                 check=False, timeout=60)
     finally:
-        build.release()
+        holder.communicate("", timeout=30)
     assert result.returncode == 23, "an updater took the checkout while a desktop build held it"
 
 
@@ -282,7 +329,7 @@ def test_a_running_update_refuses_a_direct_desktop_build(tmp_path):
     holder = subprocess.Popen([sys.executable, "-c", _UPDATE_HOLDER, str(root), str(tmp_path / "marker")],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
     try:
-        assert holder.stdout.readline().strip() == "held"
+        assert _read_line(holder).strip() == "held"
         build = DesktopBuildLock(root)
         assert build.acquire() is False, "a desktop build started while an updater held the checkout"
         assert _desktop_lock_free(root), "a refused build kept the desktop build lock"

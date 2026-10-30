@@ -12,6 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
+from http.server import ThreadingHTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,18 @@ from fastapi.testclient import TestClient
 # The real loopback range server (shared with tests/pm): importing the
 # fixture name at module scope registers it for these tests too.
 from tests.pm._range_server import dl_server, url as _srv_url
+
+
+class _JoinedRangeServer(ThreadingHTTPServer):
+    # All range readers are gone before the next test resets the shared handler.
+    daemon_threads = False
+
+
+@pytest.fixture(autouse=True)
+def _parallel_range_requests(monkeypatch):
+    # Download opens eight ranges: a single-thread peer queues their headers behind
+    # the deliberately throttled body, turning pause into an unrelated socket wait.
+    monkeypatch.setattr("tests.pm._range_server.HTTPServer", _JoinedRangeServer)
 
 
 @pytest.fixture
@@ -333,6 +346,7 @@ def test_download_short_of_server_length_errors_and_cleans_up(client, monkeypatc
             requests.append(req.headers.get('Range'))
             return super().open(req, timeout)
     monkeypatch.setattr("pm.downloader._OPENER", Truncated(b"not the real body", content_length=32))
+    monkeypatch.setattr("pm.downloader.Download._wait_retry", lambda self, seconds: None)
     destination = models_dir() / 'truncated.gguf'
     monkeypatch.setattr(lm, '_download_plan', lambda *_: [('https://fixture.invalid/model', destination, 32)])
     monkeypatch.setattr('pm.paths.partials_root', lambda: tmp_path / 'partials')
@@ -565,6 +579,24 @@ def _serve_plan(monkeypatch, dl_server, tmp_partials, bodies):
     from hermes_cli.local_runtime.bootstrap import models_dir
     from hermes_cli.web_routers import local_models as lm
 
+    first_download = [True]
+
+    class _PauseWindowDownload(lm.Download):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._hold_for_pause = first_download[0]
+            first_download[0] = False
+
+        def _read_range(self, source, remote, part, start, end, stop, record):
+            def record_and_hold(begin, position):
+                record(begin, position)
+                if self._hold_for_pause and position < end:
+                    # Keep a real, incomplete range alive until the API's pause.
+                    assert self._paused.wait(15), "pause did not reach the in-flight fixture"
+
+            super()._read_range(source, remote, part, start, end, stop, record_and_hold)
+
+    monkeypatch.setattr(lm, "Download", _PauseWindowDownload)
     RangeHandler.chunk = 128 * 1024
     RangeHandler.slow_per_chunk = 0.2
     RangeHandler.payloads = {}
@@ -599,8 +631,11 @@ def _pause_when_flowing(client, job_id):
     while time.time() < deadline:
         status = client.get(f"/api/local-models/jobs/{job_id}").json()
         if (status.get("done_bytes") or 0) > 0:
+            assert status["done_bytes"] < status["total_bytes"], "pause fixture already completed"
             break
         time.sleep(0.03)
+    else:
+        raise AssertionError("download never reported incomplete in-flight bytes")
     deadline = time.time() + 15
     while time.time() < deadline:
         pr = client.post("/api/local-models/download/pause",
@@ -611,7 +646,7 @@ def _pause_when_flowing(client, job_id):
     raise AssertionError("pause never reached the live download handle")
 
 
-_BIG_BODY = bytes(range(256)) * (8 * 1024 * 1024 // 256)  # 8 MiB, deterministic
+_BIG_BODY = bytes(range(256)) * (16 * 1024 * 1024 // 256)  # two real chunks per each of eight ranges
 
 
 def test_download_resume_completes_bytes(client, monkeypatch, dl_server,

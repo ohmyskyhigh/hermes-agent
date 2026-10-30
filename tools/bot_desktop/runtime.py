@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
+from agent.deadline import poll_until
 from hermes_constants import get_hermes_home
 from tools.bot_desktop import placement
 
@@ -294,13 +295,13 @@ def _kill_group_then_wait(pgid: Optional[int], pid: int, grace: float = 2.0) -> 
         with contextlib.suppress(ChildProcessError, OSError):
             os.waitpid(pid, os.WNOHANG)  # windows-footgun: ok — Linux-only runtime (is_supported_host gates start/stop)
 
-    _signal(signal.SIGTERM)
-    deadline = time.monotonic() + grace
-    while time.monotonic() < deadline:
+    def _gone() -> bool:
         _reap_if_ours()
-        if not _anything_left():
-            return
-        time.sleep(0.05)
+        return not _anything_left()
+
+    _signal(signal.SIGTERM)
+    if poll_until(_gone, grace, 0.05):
+        return
     _signal(signal.SIGKILL)  # windows-footgun: ok — Linux-only runtime (is_supported_host gates start/stop)
     time.sleep(0.1)
     _reap_if_ours()
@@ -743,9 +744,11 @@ def _spawn_and_wait(sd: Path, wait_seconds: float) -> DesktopStatus:
             child_env["HERMES_BD_BROWSER_EXEC_LINE"] = dock_exec_line(*browser)
         # Truncated per start: the log is a diagnostic for THIS launch, and nothing rotates it otherwise.
         log = open(sd / "launcher.log", "wb")
+        # The profile's screen outlives whichever CLI/gateway started it, on purpose: launcher.pid carries
+        # (pid, create_time) so any later process reports/stops it, and the idle stop (idle_stop_minutes) ends it.
         proc = subprocess.Popen(  # windows-footgun: ok — Linux-only runtime (is_supported_host)
             ["bash", str(_LAUNCHER)], env=child_env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-            start_new_session=True, close_fds=True)
+            start_new_session=True, close_fds=True)  # detached-spawn: ok — per-profile screen, outlives its starter
         log.close()
         born = _create_time(proc.pid)
         (sd / "launcher.pid").write_text(f"{proc.pid} {born if born is not None else 0}", encoding="utf-8")

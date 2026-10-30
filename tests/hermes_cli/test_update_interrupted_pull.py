@@ -606,6 +606,8 @@ def test_an_empty_head_answer_keeps_the_marker(tmp_path, monkeypatch, capsys):
     from hermes_cli import update_custody
 
     monkeypatch.setattr(update_custody, "run", lambda argv, inherit_lock=False, **kw: silent(argv, **kw))
+    monkeypatch.setattr(update_custody, "_run_owner_watched",
+                        lambda argv, kw, *, watch_owner=True: silent(argv, **kw))
     assert er.restore_interrupted_pull(root) is False
     assert marker.exists(), "an empty `rev-parse HEAD` deleted the marker over a torn tree"
     assert "Could not read HEAD" in capsys.readouterr().err

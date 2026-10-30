@@ -3,6 +3,8 @@
 import json
 from unittest.mock import patch
 
+import pytest
+
 
 from model_tools import (
     handle_function_call,
@@ -535,7 +537,28 @@ class TestBrowserRetrievalHints:
         assert "web_extract" not in rendered
 
 
-def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path):
+@pytest.mark.parametrize("native", [False, True])
+def test_browser_exec_points_at_vision_analyze_only_when_the_session_has_it(monkeypatch, native):
+    """An auxiliary vision route exists (check_vision_requirements is True) but the session may not
+    expose vision_analyze: the browser_exec description names it only when it is in the tool list,
+    and never under the native header, where screenshots already arrive in the result."""
+    from model_tools import _apply_dynamic_schemas
+    from tools import browser_use_cli as bu_cli
+
+    monkeypatch.setattr("tools.vision_tools._should_use_native_vision_fast_path", lambda: native)
+    monkeypatch.setattr("tools.vision_tools.check_vision_requirements", lambda: True)
+    monkeypatch.setattr("tools.browser_lightpanda.lightpanda_engine_status", lambda: (False, ""))
+    exec_def = {"type": "function", "function": {"name": "browser_exec", **bu_cli._dynamic_schema_overrides()}}
+    for names in (("terminal",), ("terminal", "vision_analyze")):
+        others = [{"type": "function", "function": {"name": n, "description": n}} for n in names]
+        rendered = next(d for d in _apply_dynamic_schemas([exec_def, *others])
+                        if d["function"]["name"] == "browser_exec")["function"]["description"]
+        assert ("pass its capture_screenshot() path to vision_analyze" in rendered) is (
+            not native and "vision_analyze" in names)
+
+
+@pytest.mark.parametrize("mtime_offset", [0, -3600])
+def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path, mtime_offset):
     """#111105: a same-size config.yaml swapped in with the old mtime must change the memo key."""
     import os
     import shutil
@@ -545,6 +568,8 @@ def test_tool_defs_cache_key_sees_config_replacement_with_pinned_mtime(tmp_path)
 
     cfg = tmp_path / "config.yaml"
     cfg.write_text("mcp_servers:\n  aa: {command: a}\n", encoding="utf-8")
+    st = cfg.stat()
+    os.utime(cfg, ns=(st.st_atime_ns, st.st_mtime_ns + mtime_offset * 1_000_000_000))
     with patch("hermes_cli.config.get_config_path", return_value=cfg):
         before = _tool_defs_cache_key(None, None, False)
         st = cfg.stat()

@@ -295,6 +295,66 @@ def test_task_xml_binds_actual_action_and_principal(case, reason, tmp_path):
         verify_windows_task(xml, home, user, 'S-1-5-21-123')
 
 
+def test_task_launcher_for_a_non_ascii_home_is_utf16_and_still_verifies(tmp_path, monkeypatch):
+    """wscript.exe reads a BOM-less .vbs in the ANSI code page, so a non-ASCII HERMES_HOME (any CJK or
+    accented Windows username) reached python garbled and the gateway died before logging. The installed
+    launcher is UTF-16 with a BOM; ensure must verify it, and a UTF-8 one an older version wrote."""
+    import codecs
+    from hermes_cli import gateway_windows
+    from hermes_cli.gateway_runtime_service_identity import verify_windows_task
+
+    home = tmp_path / 'Usuário 方舟'
+    script = home / 'gateway-service' / 'Hermes_Gateway.cmd'
+    script.parent.mkdir(parents=True)
+    monkeypatch.setattr(gateway_windows, '_assert_windows', lambda: None)
+    monkeypatch.setattr(gateway_windows, 'get_task_script_path', lambda: script)
+    monkeypatch.setattr(gateway_windows, '_launcher_settings', lambda: (sys.executable, str(home), str(home), ''))
+    launcher = gateway_windows._write_task_script().with_suffix('.vbs')
+    raw = launcher.read_bytes()
+    assert raw.startswith(codecs.BOM_UTF16_LE) and str(home) in raw.decode('utf-16')
+    user = 'DOMAIN\\owner'
+    xml = gateway_windows._build_scheduled_task_xml('Hermes_Gateway', launcher, user)
+    verify_windows_task(xml, home, user, 'S-1-5-21-123')
+    launcher.write_bytes(raw.decode('utf-16').encode('utf-8'))
+    verify_windows_task(xml, home, user, 'S-1-5-21-123')
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_task_discovery_skips_listing_lines_that_are_not_task_rows(tmp_path, monkeypatch, installed):
+    """An orphaned TaskCache entry (OEM leftovers) makes ``schtasks /Query /FO CSV`` print a localized
+    one-field diagnostic among the rows (#142140). That refused every cold start with
+    service_state_unknown, task or not. Such lines are skipped; one naming our task still never counts."""
+    from types import SimpleNamespace
+    from hermes_cli import gateway_runtime_service as service
+    from hermes_cli.gateway_windows import _build_scheduled_task_xml
+
+    home = tmp_path / "profile"
+    home.mkdir()
+    script = _installed_vbs(home, str(home))
+    name = "Hermes_Gateway_" + service.service_suffix(home)
+    account, sid = "DESKTOP-1\\owner", "S-1-5-21-123"
+    listing = ('"\\Microsoft\\Windows\\Defrag\\ScheduledDefrag","N/A","Ready"\r\n'
+               '错误: 任务映像已损坏或已篡改。\r\n'
+               f'"\\{name}","N/A"\r\n')
+    if installed:
+        listing += f'"\\{name}","N/A","Ready"\r\n'
+    # whoami first: it is queried with /FO CSV too.
+    out = {"whoami.exe": f'"{account}","{sid}"\r\n', "/XML": _build_scheduled_task_xml(name, script, account),
+           "/FO": listing}
+    queries = []
+
+    def run(argv, *_args, **_kwargs):
+        queries.append(argv)
+        return SimpleNamespace(returncode=0, stdout=next(text for key, text in out.items() if key in argv).encode())
+
+    monkeypatch.setattr(service, "_run", run)
+    found = service._windows(home, time.monotonic() + 5)
+    if installed:
+        assert found is not None and found.start_argv == ("schtasks.exe", "/Run", "/TN", name)
+    else:
+        assert found is None and len(queries) == 1
+
+
 @pytest.mark.platforms("macos")
 @pytest.mark.parametrize("case,reason", [("loaded_good_disk_wrong", None), ("loaded_wrong_disk_good", "profile_mismatch"), ("bootstrap", None)])
 def test_native_launchd_checks_loaded_job_before_disk(case, reason, tmp_path, monkeypatch):
@@ -367,9 +427,9 @@ def test_native_task_query_uses_installed_xml_and_vendor_launcher(wrong, tmp_pat
     actual = subprocess.run
     calls = []
     def boundary(argv, **kw):
-        if argv[0] == 'whoami.exe':
+        if Path(argv[0]).name.casefold() == 'whoami.exe':
             return actual(argv, **kw)
-        assert argv[0] == 'schtasks.exe'
+        assert Path(argv[0]).name.casefold() == 'schtasks.exe'
         calls.append(argv)
         return actual([sys.executable, str(peer), *argv[1:]], **kw)
     monkeypatch.setattr(subprocess, 'run', boundary)
@@ -491,6 +551,7 @@ def test_s6_command_timeout_ends_at_the_runtime_deadline(tmp_path, monkeypatch):
         service.start_existing_gateway_service(stopped, deadline=time.monotonic() + 5)
 
 
+@pytest.mark.platforms("windows")
 def test_windows_startup_folder_entry_still_restarts_a_stopped_owner(tmp_path, monkeypatch):
     """The Startup-folder fallback is login persistence only (no start verb, no identity): with it
     present and no Scheduled Task registered, ensure takes the same detached direct spawn manual
@@ -505,9 +566,9 @@ def test_windows_startup_folder_entry_still_restarts_a_stopped_owner(tmp_path, m
     startup.mkdir()
     (startup / f"Hermes_Gateway_{service.service_suffix(home)}.vbs").write_text("' fallback\r\n")
     monkeypatch.setattr(gateway_windows, "_startup_dir", lambda: startup)
+    monkeypatch.setattr(gateway_windows, "_query_scheduled_task_xml", lambda _name: "")
     queries, spawned = [], []
     monkeypatch.setattr(service, "_run", lambda argv, *a, **k: queries.append(argv) or SimpleNamespace(returncode=0, stdout=b""))
-    monkeypatch.setattr(service.sys, "platform", "win32")
     monkeypatch.setattr(runtime, "discover_gateway_endpoint", lambda *a, **k: runtime.GatewayDiscovery("absent"))
     monkeypatch.setattr(start, "spawn_unmanaged_gateway", lambda target, **k: spawned.append(Path(target)))
     result = runtime.ensure_gateway_runtime(home, timeout=0.3)

@@ -80,7 +80,7 @@
     "kind": "bare_which"
   },
   {
-    "path": "gateway/platforms/base.py",
+    "path": "gateway/platforms/base_voice.py",
     "symbol": "transcode_to_ogg_opus",
     "kind": "bare_which"
   },

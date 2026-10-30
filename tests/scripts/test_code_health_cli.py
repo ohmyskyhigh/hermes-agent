@@ -24,7 +24,8 @@ from scripts.code_health.config import ENFORCEMENT
 REPO = Path(__file__).resolve().parents[2]
 _GUARD_SCRIPTS = (
     "scripts/check-windows-footguns.py", "scripts/check_bash_shebangs.py",
-    "scripts/check_no_tmp_literals.py", "scripts/check_config_yaml_writers.py",
+    "scripts/check_no_tmp_literals.py", "scripts/check_detached_spawns.py",
+    "scripts/check_config_yaml_writers.py", "scripts/check_config_yaml_readers.py",
     "scripts/ci/check_os_marker_fakes.py", "scripts/check-case-collisions.py",
     "scripts/ci/check_lazy_deps_imports.py", "scripts/ci/check_profile_archive_boundary.py",
     "scripts/ci/check_agents_md_size.py", "scripts/ci/check_blob_size.py",
@@ -231,6 +232,7 @@ def _remote_ref(remote: Path, branch: str) -> str:
     return _git(remote, "for-each-ref", "--format=%(objectname)", f"refs/heads/{branch}")
 
 
+@pytest.mark.require_symlinks
 def test_pre_push_judges_a_checker_branch_pushed_from_an_older_checkout(tmp_path):
     repo, remote = _pushable(tmp_path)
     _branch_with_checker(repo, "feature", {"pkg/c.py": _SWALLOW})
@@ -259,6 +261,7 @@ def test_pre_push_judges_a_checker_branch_pushed_from_an_older_checkout(tmp_path
 # --- M5: interpreter choice and the version guard ---------------------------------------------
 
 
+@pytest.mark.require_symlinks
 def test_hooks_prefer_the_repo_virtualenv_over_path_python(tmp_path):
     repo = _engine_repo(tmp_path)
     assert _check(repo, "--install-hook", "pre-commit").returncode == 0
@@ -347,6 +350,7 @@ def test_a_branch_cannot_relax_its_own_switch(tmp_path, monkeypatch, capsys):
 # --- F23: the hooks under Git for Windows with MSYS path conversion disabled -----------------
 
 
+@pytest.mark.require_symlinks
 def test_hooks_run_with_msys_path_conversion_disabled(tmp_path):
     """Hermes' Windows terminal exports both variables, so native git and python see the hook's
     paths verbatim: a POSIX `/c/...` temp path then reaches them unconverted. Inert elsewhere."""

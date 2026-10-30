@@ -282,17 +282,21 @@ class TestTranscribeLocalCommand:
 
         class Proc:
             returncode = 0
+            pid = 4242
             stdout = _Stream()
             stderr = _Stream()
 
             def wait(self, timeout=None):
                 return 0
 
+            def poll(self):
+                return 0
+
         def fake_popen(command, **kwargs):
             captured["env"] = kwargs["env"]
             return Proc()
 
-        monkeypatch.setattr("tools.tts_command_provider.subprocess.Popen", fake_popen)
+        monkeypatch.setattr("tools.tts_command_provider.spawn_owned", fake_popen)
 
         from tools.transcription_command import _run_command_stt
 
@@ -487,7 +491,7 @@ class TestTranscribeLocalExtended:
         assert mock_whisper_cls.call_count == 1
 
     def test_config_device_and_compute_type_passed_to_whisper(self, tmp_path):
-        """User-configured device and compute_type should be forwarded to WhisperModel.
+        """Forward configured device/compute type; retain native Apple Silicon safety policy.
 
         Regression test for #8319: these values were hardcoded to "auto".
         """
@@ -511,17 +515,23 @@ class TestTranscribeLocalExtended:
             }
         }
 
+        from tools.transcription_tools import _load_local_whisper_model
+        from tools.transcription_local import _should_force_faster_whisper_cpu
+
         with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
              patch("faster_whisper.WhisperModel", mock_whisper_cls), \
              patch("tools.transcription_tools._local_model", None), \
              patch("tools.transcription_tools._local_model_name", None), \
-             patch("tools.transcription_tools._load_stt_config", return_value=fake_config):
+             patch("tools.transcription_tools._load_stt_config", return_value=fake_config), \
+             patch("tools.transcription_tools._load_local_whisper_model", wraps=_load_local_whisper_model) as load:
             from tools.transcription_tools import _transcribe_local
             result = _transcribe_local(str(audio), "base")
 
         assert result["success"] is True
+        load.assert_called_once_with("base", device="cpu", compute_type="float32")
+        native_compute = "int8" if _should_force_faster_whisper_cpu() else "float32"
         mock_whisper_cls.assert_called_once_with(
-            "base", local_files_only=True, device="cpu", compute_type="float32"
+            "base", local_files_only=True, device="cpu", compute_type=native_compute
         )
 
 

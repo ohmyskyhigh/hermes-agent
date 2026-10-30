@@ -16,7 +16,7 @@ from hermes_dir_acl import make_user_dir
 
 __all__ = ["ensure_spill_dir", "open_exclusive", "write_text_exclusive"]
 
-# O_NOFOLLOW is POSIX-only; on Windows O_EXCL alone already refuses every pre-existing path.
+# O_NOFOLLOW is POSIX-only; Windows uses native CREATE_NEW over the reparse point itself.
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
@@ -51,9 +51,13 @@ def open_exclusive(path: Path, *, private: bool = True, overwrite: bool = False,
                 raise OSError(f"refusing to overwrite a directory: {path}")
             os.unlink(path)
     mode = 0o600 if private else 0o666  # non-private honors umask
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW, mode)
+    if os.name == "nt":
+        from hermes_platform.host.windows_files import create_new_file
+        fd = create_new_file(path)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_NOFOLLOW, mode)
     try:
-        return os.fdopen(fd, "w", encoding=encoding, errors=errors)
+        return os.fdopen(fd, "w", encoding=encoding, errors=errors, newline="")
     except Exception:
         os.close(fd)
         raise

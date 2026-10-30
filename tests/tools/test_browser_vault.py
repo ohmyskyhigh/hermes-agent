@@ -18,6 +18,7 @@ import re
 import os
 import stat
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,6 +78,7 @@ class TestVaultStore:
         blob = (tmp_path / "vault" / "vault.json.enc").read_bytes()
         assert b"s3cret-pw" not in blob
 
+    @pytest.mark.platforms("posix")
     def test_file_permissions_0600(self, store, tmp_path):
         _add_login(store)
         for name in ("vault.json.enc", "vault.key"):
@@ -322,6 +324,9 @@ class TestBrowserVaultTools:
 
             def get_meta(self, handle):
                 return meta if handle == meta.id else None
+
+            def fill_context(self):
+                return nullcontext()
 
             def resolve_password(self, handle):
                 return "s3cret-pw"
@@ -630,6 +635,7 @@ class TestVaultHardening:
         assert "vault.key" in _SECRET_FILE_NAMES
         assert "vault.json.enc" in _SECRET_FILE_NAMES
 
+    @pytest.mark.platforms("posix")
     def test_vault_dir_is_owner_only(self, store, tmp_path):
         old_umask = os.umask(0o022)
         try:
